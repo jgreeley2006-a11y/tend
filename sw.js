@@ -1,5 +1,5 @@
 // Tend service worker: offline app shell + push notifications.
-const CACHE = "tend-v3";
+const CACHE = "tend-v4";
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./config.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/apple-touch-icon.png", "./icons/badge-96.png"];
 
@@ -26,15 +26,17 @@ self.addEventListener("fetch", e => {
 
 self.addEventListener("push", e => {
   let data = {};
-  try { data = e.data ? e.data.json() : {}; } catch (_) { data = { body: e.data && e.data.text() }; }
+  try { data = e.data ? e.data.json() : {}; } catch (_) { try { data = { body: e.data.text() }; } catch (_) {} }
   const title = data.title || "Tend";
-  e.waitUntil(self.registration.showNotification(title, {
+  const options = {
     body: data.body || "Open Tend to see today's next steps.",
     icon: "icons/icon-192.png",
     badge: "icons/badge-96.png",
-    tag: data.tag || "tend-daily",
+    tag: String(data.tag || "tend").replace(/[^a-zA-Z0-9-]/g, "-"),
     data: { url: data.url || "./" }
-  }));
+  };
+  // Always show something: if the detailed notification fails, show a plain one.
+  e.waitUntil(self.registration.showNotification(title, options).catch(() => self.registration.showNotification(title, { body: options.body })));
 });
 
 self.addEventListener("notificationclick", e => {
