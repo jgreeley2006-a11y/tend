@@ -484,7 +484,7 @@ function viewPerson(p){
       <div class="section-head"><h2>Next steps</h2><button class="linkbtn" data-act="open-task">Add</button></div>
       ${o==="task" ? taskForm(p) : ""}
       <div class="chips wrap">${NEXT_BY_STAGE[p.stage||0].map(x=>`<button class="chip" data-suggest="${esc(x)}">+ ${esc(x)}</button>`).join("")}</div>
-      ${tasks.length ? `<ul class="plain-list">${tasks.map(t=>`<li><button class="check ${t.done?"on":""}" data-toggle-task="${esc(t.id)}" aria-label="${t.done?"Mark not done":"Mark done"}">${t.done?"✓":""}</button><div class="grow"><div class="${t.done?"strike":""}">${esc(t.title)}</div>${t.due?`<div class="meta">${t.done?"Done":"Due "+esc(fmtDay(t.due))+(t.remindAt?" · Reminder "+esc(fmtTime(t.remindAt)):"")}</div>`:""}</div><button class="linkbtn muted" data-del-task="${esc(t.id)}" aria-label="Remove">✕</button></li>`).join("")}</ul>` : ""}
+      ${tasks.length ? `<ul class="plain-list">${tasks.map(t=>`<li><button class="check ${t.done?"on":""}" data-toggle-task="${esc(t.id)}" aria-label="${t.done?"Mark not done":"Mark done"}">${t.done?"✓":""}</button><div class="grow"><button class="tasktitle ${t.done?"strike":""}" data-edit-task="${esc(t.id)}" data-pid="${esc(p.id)}">${esc(t.title)}</button>${t.due?`<div class="meta">${t.done?"Done":"Due "+esc(fmtDay(t.due))+(t.remindAt?" · Reminder "+esc(fmtTime(t.remindAt)):"")}</div>`:""}</div><button class="linkbtn muted" data-del-task="${esc(t.id)}" aria-label="Remove">✕</button></li>`).join("")}</ul>` : ""}
     </section>
 
     <section class="stack">
@@ -599,7 +599,7 @@ function viewTasks(){
       <span class="hint">Leave the time blank if you don't want a phone reminder.</span>
       <div class="row"><button class="btn small">Add</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div></form>` : `<div><button class="btn small" data-act="open-gtask">Add a task</button></div>`}
     ${groups.filter(g=>g[1].length).map(([name, list]) => `<section><div class="section-head"><h2>${name}</h2></div>
-      <ul class="plain-list card">${list.map(x=>{ const p = x.personId?byId.get(x.personId):null; return `<li><button class="check" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark done"></button><div class="grow"><div>${esc(x.title)}</div><div class="meta">${p?nameLink(p)+" · ":""}${x.due?esc(fmtDay(x.due)):"No date"}${x.remindAt?" · Reminder "+esc(fmtTime(x.remindAt)):""}</div></div></li>`; }).join("")}</ul></section>`).join("") || `<div class="card empty">No open tasks. Add a next step from anyone's page.</div>`}
+      <ul class="plain-list card">${list.map(x=>{ const p = x.personId?byId.get(x.personId):null; return `<li><button class="check" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark done"></button><div class="grow"><button class="tasktitle" data-edit-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}">${esc(x.title)}</button><div class="meta">${p?nameLink(p)+" · ":""}${x.due?esc(fmtDay(x.due)):"No date"}${x.remindAt?" · Reminder "+esc(fmtTime(x.remindAt)):""}</div></div></li>`; }).join("")}</ul></section>`).join("") || `<div class="card empty">No open tasks. Add a next step from anyone's page.</div>`}
     ${doneRecent.length ? `<section><div class="section-head"><h2>Done this week</h2></div><ul class="plain-list">${doneRecent.map(x=>`<li><button class="check on" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark not done">✓</button><div class="grow strike">${esc(x.title)}</div></li>`).join("")}</ul></section>`:""}
   </div>`;
 }
@@ -637,6 +637,22 @@ function afterAddSheet(p){
     ${canFocus ? `<div class="row spread card"><div><b>Add to Focus 5?</b><div class="small muted">You'll pray for them daily on Today.</div></div><button class="pill-btn" data-act="add-focus">★ Add</button></div>` : ""}
     <div class="row"><button class="btn" data-act="open-new">Open ${esc(first(p.name))}</button><button class="btn ghost" data-act="close-sheet">Done</button></div></div>`);
   S.lastAdded = p.id;
+}
+let editing = null;
+function taskRef(pid, id){ const list = pid ? (S.people.get(pid)?.tasks || []) : S.meta.tasks; return { list, t: list.find(x => x.id === id) }; }
+function editTaskSheet(pid, id, confirmDelete){
+  const { t } = taskRef(pid, id); if (!t) return;
+  editing = { pid, id };
+  const who = pid ? S.people.get(pid) : null;
+  openSheet(`<form class="stack" data-form="tedit">
+    <h2>Edit task</h2>
+    ${who ? `<p class="small muted" style="margin:0">For ${esc(who.name)}</p>` : ""}
+    <label class="f">Task<input class="t" id="te-title" required value="${esc(t.title)}"></label>
+    <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" id="te-due" type="date" value="${esc(t.due||"")}"></label><label class="f grow">Remind me at<input class="t" id="te-time" type="time" value="${esc(t.remindAt||"")}"></label></div>
+    <span class="hint">Clear the time to turn off the phone reminder.</span>
+    ${confirmDelete ? `<div class="card stack"><div>Delete this task? This can't be undone.</div><div class="row"><button type="button" class="btn small" style="background:var(--warn)" data-act="tdel-yes">Delete</button><button type="button" class="btn small ghost" data-act="tdel-no">Keep it</button></div></div>` : ""}
+    <div class="row wrap"><button class="btn">Save</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button><button type="button" class="linkbtn danger" data-act="tdel-ask" style="margin-left:auto">Delete task</button></div>
+  </form>`);
 }
 function reviewSheet(){
   const t = today(); const ws = addDays(t,-7);
@@ -688,6 +704,7 @@ document.addEventListener("click", async e => {
   if (d.prayed){ const p = S.people.get(d.prayed); p.prayed ||= []; const t = today(); if (p.prayed.includes(t)) p.prayed = p.prayed.filter(x=>x!==t); else { p.prayed.push(t); p.prayed = p.prayed.slice(-60); } savePerson(p); render(); return; }
   if (d.doneTask){ toggleTask(d.pid || null, d.doneTask); return; }
   if (d.toggleTask){ const pid = d.pid !== undefined ? (d.pid || null) : S.ui.personId; toggleTask(pid, d.toggleTask); return; }
+  if (d.editTask){ editTaskSheet(d.pid || null, d.editTask); return; }
   if (d.delTask){ const p = cur(); p.tasks = p.tasks.filter(t=>t.id!==d.delTask); savePerson(p); render(); return; }
   if (d.delDate){ const p = cur(); p.dates = p.dates.filter(t=>t.id!==d.delDate); savePerson(p); render(); return; }
   if (d.stage !== undefined){ const p = cur(); const s = +d.stage; if (s !== p.stage){ p.stage = s; (p.stageHistory ||= []).push({stage:s, at:today()}); savePerson(p); toast("Stage: " + STAGES[s]); render(); } return; }
@@ -728,6 +745,11 @@ document.addEventListener("click", async e => {
       settingsSheet(); break; }
     case "test-push": sendTest(el); break;
     case "dismiss-toast": $("#toast-root").innerHTML = ""; break;
+    case "tdel-ask": if (editing) editTaskSheet(editing.pid, editing.id, true); break;
+    case "tdel-no": if (editing) editTaskSheet(editing.pid, editing.id, false); break;
+    case "tdel-yes": { if (!editing) break; const { pid, id } = editing;
+      if (pid){ const q = S.people.get(pid); q.tasks = (q.tasks||[]).filter(x => x.id !== id); savePerson(q); } else { S.meta.tasks = S.meta.tasks.filter(x => x.id !== id); saveMeta(); }
+      editing = null; closeSheet(); toast("Task deleted"); render(); break; }
     case "toggle-daily": S.meta.dailySummary = S.meta.dailySummary === false; saveMeta(); settingsSheet(); break;
     case "export": exportData(); break;
     case "signout": await sb.auth.signOut(); USER = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
@@ -784,6 +806,15 @@ document.addEventListener("submit", e => {
     const pid = v("gt-person"); const tm = v("gt-time"); const t = {id:uid("t"), title:v("gt-title"), due:v("gt-due") || (tm ? today() : null), remindAt: tm || null, done:false}; remindNote(tm, t.due);
     if (pid){ const q = S.people.get(pid); (q.tasks ||= []).push(t); savePerson(q); } else { S.meta.tasks.push(t); saveMeta(); }
     S.ui.open = null; render();
+  } else if (kind === "tedit"){
+    if (!editing) return;
+    const { t } = taskRef(editing.pid, editing.id); if (!t) { closeSheet(); return; }
+    const tm = v("te-time"); const oldKey = (t.due||"") + (t.remindAt||"");
+    t.title = v("te-title") || t.title; t.due = v("te-due") || (tm ? today() : null); t.remindAt = tm || null;
+    if (editing.pid) savePerson(S.people.get(editing.pid)); else saveMeta();
+    closeSheet(); render();
+    if (tm && (t.due||"") + tm !== oldKey) remindNote(tm, t.due); else toast("Task updated");
+    editing = null;
   } else if (kind === "review"){
     let n = 0;
     [0,1,2].forEach(i => { const pid = v("rv-p"+i), title = v("rv-t"+i); if (!title) return; const t = {id:uid("t"), title, due:addDays(today(), 2+i*2), done:false}; if (pid){ const q = S.people.get(pid); (q.tasks ||= []).push(t); savePerson(q); } else S.meta.tasks.push(t); n++; });

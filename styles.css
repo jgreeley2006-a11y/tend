@@ -191,3 +191,7 @@ input[type="date"].t,input[type="time"].t{min-width:0;max-width:100%;-webkit-app
 label.f{min-width:0}
 .sheet{max-width:100%}
 .phead .grow h1{overflow-wrap:anywhere}
+
+.tasktitle{background:none;border:0;padding:0;margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer;display:block;width:100%}
+.tasktitle:hover{text-decoration:underline}
+.toast{top:calc(14px + env(safe-area-inset-top,0px));bottom:auto}
