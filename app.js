@@ -190,16 +190,30 @@ const pushSupported = () => "serviceWorker" in navigator && "PushManager" in win
 function b64ToUint8(b64){ const pad = "=".repeat((4 - b64.length % 4) % 4); const s = atob((b64 + pad).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from([...s].map(c => c.charCodeAt(0))); }
 
 async function enableNotifications(){
-  const perm = await Notification.requestPermission();
-  if (perm !== "granted"){ toast("Notifications are blocked. Turn them on in Settings › Notifications › Tend."); return false; }
-  const reg = await navigator.serviceWorker.ready;
-  let sub = await reg.pushManager.getSubscription();
-  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(window.TEND_CONFIG.VAPID_PUBLIC_KEY) });
-  const json = sub.toJSON();
-  const { error } = await sb.from("push_subscriptions").upsert({ endpoint: json.endpoint, user_id: USER.id, subscription: json });
-  if (error){ toast("Couldn't turn on notifications. Try again."); console.warn(error); return false; }
-  S.settings.notify = true; S.settings.tz = Intl.DateTimeFormat().resolvedOptions().timeZone; saveMeta();
-  return true;
+  try {
+    if (Notification.permission === "denied"){ toast("Notifications are blocked. iPhone Settings › Notifications › Tend › Allow Notifications."); return false; }
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted"){ toast("Notifications weren't allowed. iPhone Settings › Notifications › Tend › Allow Notifications."); return false; }
+    toast("Setting up…");
+    let reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) reg = await navigator.serviceWorker.register("sw.js");
+    reg = await Promise.race([navigator.serviceWorker.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("The app's background worker didn't start. Close Tend fully and open it again.")), 10000))]);
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(window.TEND_CONFIG.VAPID_PUBLIC_KEY) });
+    const json = sub.toJSON();
+    const { error } = await sb.from("push_subscriptions").upsert({ endpoint: json.endpoint, user_id: USER.id, subscription: json });
+    if (error) throw new Error("Couldn't save to Supabase: " + (error.message || error.code));
+    S.settings.notify = true; S.settings.tz = Intl.DateTimeFormat().resolvedOptions().timeZone; saveMeta();
+    return true;
+  } catch(e){
+    console.warn(e);
+    showError("Couldn't turn on reminders: " + (e && (e.message || e.name) || e));
+    return false;
+  }
+}
+function showError(msg){
+  const r = $("#toast-root"); r.innerHTML = `<div class="toast" role="alert" style="max-width:92%">${esc(msg)}<div style="margin-top:8px"><button class="linkbtn" style="color:inherit;text-decoration:underline" data-act="dismiss-toast">OK</button></div></div>`;
+  clearTimeout(toast.t);
 }
 async function disableNotifications(){
   try {
@@ -702,10 +716,12 @@ document.addEventListener("click", async e => {
     case "ai-fill": aiFill(el); break;
     case "settings": settingsSheet(); break;
     case "toggle-notify": {
+      el.disabled = true;
       if (S.settings.notify){ await disableNotifications(); toast("Daily reminder off"); }
       else if (await enableNotifications()) toast("Daily reminder on for " + (S.settings.time||"07:30"));
       settingsSheet(); break; }
     case "test-push": sendTest(el); break;
+    case "dismiss-toast": $("#toast-root").innerHTML = ""; break;
     case "export": exportData(); break;
     case "signout": await sb.auth.signOut(); USER = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
     case "signin-toggle": S.signin = { step: S.signin.step === "create" ? "signin" : "create", email: ($("#si-email")?.value || S.signin.email || "") }; render(); break;
