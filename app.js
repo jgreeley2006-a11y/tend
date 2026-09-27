@@ -125,6 +125,15 @@ async function loadFromServer(){
   cacheLocal();
 }
 
+function loadVerses(){
+  try { const c = JSON.parse(localStorage.getItem("tend-verses") || "null"); if (c && c.length) S.verses = c; } catch(_){}
+  sb.from("verses").select("n,ref,text").order("n").then(({ data }) => { if (data && data.length){ S.verses = data; try { localStorage.setItem("tend-verses", JSON.stringify(data)); } catch(_){} softRender(); } });
+}
+function verseToday(){
+  const v = S.verses || []; if (!v.length) return null;
+  const t = today(); const n = Math.floor((Date.UTC(+t.slice(0,4), +t.slice(5,7) - 1, +t.slice(8,10)) - Date.UTC(2026,0,1)) / 86400000);
+  return v[((n % v.length) + v.length) % v.length];
+}
 async function boot(){
   const C = window.TEND_CONFIG || {};
   if (!window.supabase || !C.SUPABASE_URL || C.SUPABASE_URL.includes("YOUR-PROJECT")){
@@ -141,6 +150,7 @@ async function startSession(user){
   USER = user;
   pending.set = loadPending();
   try { const raw = localStorage.getItem(cacheKey()); if (raw){ const d = JSON.parse(raw); (d.people||[]).forEach(p => S.people.set(p.id, p)); if (d.meta) S.meta = d.meta; if (d.settings) S.settings = d.settings; S.meta.tasks ||= []; S.mode = "db"; render(); } } catch(_){}
+  loadVerses();
   try { await loadFromServer(); S.mode = "db"; softRender(); flushPending(); }
   catch(e){ console.warn(e); if (S.mode !== "db"){ S.mode = "db"; render(); } setSync("Offline. Showing what's saved on this phone."); }
 }
@@ -380,6 +390,7 @@ function viewToday(){
   <div class="top"><div><div class="date">${esc(new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"}))}</div><h1>${hello}</h1></div>
     <div class="top-actions"><button class="iconbtn" data-act="quiet">${quiet ? "Quiet on" : "Quiet mode"}</button><button class="iconbtn gear" data-act="settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div></div>
   <div class="stack-lg">
+    ${(v => v ? `<section class="verse"><div class="eyebrow">Today's verse</div><blockquote>${esc(v.text)}</blockquote><div class="row spread"><span class="vref">${esc(v.ref)} · KJV</span><button class="linkbtn" data-copy="${esc(v.text + " (" + v.ref + ", KJV)")}">Copy</button></div></section>` : "")(verseToday())}
     ${exampleBanner()}
     ${quiet ? `<div class="banner quiet"><div class="grow"><div><b>Quiet mode is on${S.meta.quietUntil!=="on" ? " until " + esc(fmtDay(S.meta.quietUntil)) : ""}.</b> Reminders are paused. Rest is part of faithfulness.</div><div><button class="linkbtn" data-act="quiet-off">Turn off quiet mode</button></div></div></div>` : ""}
     ${quiet ? "" : `<section>
