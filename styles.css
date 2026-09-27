@@ -195,3 +195,8 @@ label.f{min-width:0}
 .tasktitle{background:none;border:0;padding:0;margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer;display:block;width:100%}
 .tasktitle:hover{text-decoration:underline}
 .toast{top:calc(14px + env(safe-area-inset-top,0px));bottom:auto}
+.nudge{font-size:12px;font-weight:600;color:var(--warn);background:var(--warn-soft);padding:2px 8px;border-radius:999px;white-space:nowrap}
+.glance .kv{grid-template-columns:96px 1fr}
+.glance .kv dd div+div{margin-top:4px}
+.quicklog{gap:8px}
+.tl.done-task{border-left-color:var(--accent)}

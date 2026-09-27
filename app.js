@@ -427,13 +427,50 @@ function viewPeople(){
     ${list.length ? `<div class="plist">${list.map(p => { const s = sinceContact(p); return `
       <button class="pitem" data-open="${esc(p.id)}"><div class="avatar">${esc(initials(p.name))}</div>
         <div class="grow"><div class="pname">${esc(p.name)} ${p.focus?`<span class="star" aria-label="Focus 5">★</span>`:""} ${p.example?`<span class="ex">Example</span>`:""}</div>
-        <div class="meta">${esc(p.howMet||"")}${p.howMet?" · ":""}${s===null?"No contact logged":s===0?"Talked today":`Last contact ${s}d ago`}</div></div>${stageTag(p)}</button>`; }).join("")}</div>`
+        <div class="meta">${esc(p.howMet||"")}${p.howMet?" · ":""}${esc(lastContactLabel(p) || "No contact logged")}</div></div>${stageTag(p)}</button>`; }).join("")}</div>`
       : `<div class="card empty">${people().length ? "No one matches that search." : "No one here yet. Tap Add person after your next conversation."}</div>`}
     ${storageNote()}
   </div>`;
 }
 
 /* Person */
+const LOG_VERB = { "Call":"Called", "Text":"Texted", "In person":"Saw them", "Meal":"Shared a meal", "Served":"Served", "Invited":"Invited", "Shared my story":"Shared your story" };
+const IN_PERSON = ["In person","Meal","Served","Invited","Shared my story"];
+function lastOf(p, types){ return (p.logs||[]).filter(x => types.includes(x.type)).map(x => x.at).sort().pop() || null; }
+function agoText(d){ if (!d) return "never"; const n = daysBetween(d, today()); if (n <= 0) return "today"; if (n === 1) return "yesterday"; if (n < 7) return n + " days ago"; if (n < 14) return "last week"; if (n < 60) return Math.round(n/7) + " weeks ago"; return Math.round(n/30) + " months ago"; }
+function agoFull(d){ if (!d) return "Never"; const t = agoText(d); return t.charAt(0).toUpperCase() + t.slice(1) + " (" + fmtDate(d) + ")"; }
+function lastContactLabel(p){ let l = null; (p.logs||[]).forEach(x => { if (!l || x.at >= l.at) l = x; }); return l ? (LOG_VERB[l.type] || l.type) + " " + agoText(l.at) : null; }
+function comingUp(p){
+  const t = today(); const items = [];
+  (p.tasks||[]).filter(x => !x.done && x.due).forEach(x => items.push(x.due < t
+    ? { sort:"0" + x.due, text:x.title, sub:"Overdue, was " + fmtDay(x.due), overdue:true }
+    : { sort:x.due + (x.remindAt || "99"), text:x.title, sub:fmtDay(x.due) + (x.remindAt ? " · " + fmtTime(x.remindAt) : "") }));
+  (p.dates||[]).forEach(d => { const n = nextDateOf(d); if (n){ const k = daysBetween(t, n); if (k >= 0 && k <= 30) items.push({ sort:n + "00", text:d.label, sub:fmtDay(n) }); } });
+  return items.sort((a,b) => a.sort.localeCompare(b.sort)).slice(0, 4);
+}
+function historyView(p){
+  const f = S.ui.hist || "All";
+  const groups = { "All":null, "Calls":["Call"], "Texts":["Text"], "In person":IN_PERSON, "Tasks done":["__task"] };
+  const items = [];
+  (p.logs||[]).forEach((l, n) => items.push({ sort:l.at + "1" + String(n).padStart(5, "0"), kind:l.type, log:l }));
+  (p.tasks||[]).filter(t => t.done && t.doneAt).forEach(t => items.push({ sort:t.doneAt + "0", kind:"__task", task:t }));
+  const g = groups[f] || null;
+  const list = items.filter(i => !g || g.includes(i.kind)).sort((a,b) => b.sort.localeCompare(a.sort));
+  const chips = Object.keys(groups).map(k => `<button class="chip" data-hist="${esc(k)}" aria-pressed="${k===f}">${esc(k)}</button>`).join("");
+  const row = i => i.task
+    ? `<div class="tl done-task"><div class="when">${esc(fmtDate(i.task.doneAt))} · Task done</div><p>${esc(i.task.title)}</p></div>`
+    : `<div class="tl"><div class="when">${esc(fmtDate(i.log.at))} · ${esc(LOG_VERB[i.log.type] || i.log.type)}</div>${i.log.shared?`<p>${esc(i.log.shared)}</p>`:""}${i.log.cares?`<p><span class="lbl">Cares about:</span> ${esc(i.log.cares)}</p>`:""}${i.log.questions?`<p><span class="lbl">Asked:</span> ${esc(i.log.questions)}</p>`:""}${!i.log.shared && !i.log.cares && !i.log.questions && i.log.id ? `<button class="linkbtn" data-note-log="${esc(i.log.id)}">Add a note</button>` : ""}</div>`;
+  return `<div class="chips" role="group" aria-label="Filter history">${chips}</div>` + (list.length
+    ? `<div class="timeline">${list.map(row).join("")}</div>`
+    : `<div class="card empty">${f === "All" ? "Tap Called, Texted, or Saw them after you reach out, or log a longer conversation." : "Nothing here yet."}</div>`);
+}
+function noteSheet(logId){
+  const p = cur(); const l = (p?.logs||[]).find(x => x.id === logId); if (!l) return;
+  S.noteLog = logId;
+  openSheet(`<form class="stack" data-form="lognote"><h2>Add a note</h2><p class="small muted" style="margin:0">${esc((LOG_VERB[l.type]||l.type) + " · " + fmtDate(l.at))}</p>
+    <label class="f">What did ${esc(first(p.name))} share?<textarea class="t" id="ln-text" data-autofocus placeholder="Their words, their news, what's on their heart"></textarea></label>
+    <div class="row"><button class="btn">Save</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button></div></form>`);
+}
 function viewPerson(p){
   const s = sinceContact(p);
   const logs = [...(p.logs||[])].sort((a,b)=>b.at.localeCompare(a.at));
@@ -445,6 +482,7 @@ function viewPerson(p){
   const tasks = [...(p.tasks||[])].sort((a,b)=>(a.done-b.done)||(a.due||"9").localeCompare(b.due||"9"));
   const o = S.ui.open;
   const focusCount = focusPeople().length;
+  const up = comingUp(p);
   return `
   <button class="back" data-act="back">‹ Back</button>
   <div class="stack-lg">
@@ -458,6 +496,17 @@ function viewPerson(p){
         <div class="stagebar" role="group" aria-label="Journey stage">${STAGES.map((st,i)=>`<button class="${i<=(p.stage||0)?"done":""}" data-stage="${i}" aria-label="${esc(st)}" title="${esc(st)}"></button>`).join("")}</div>
       </div>
     </div>
+
+    <section class="card stack glance">
+      <div class="row spread"><h3>At a glance</h3>${s !== null && s >= 14 ? `<span class="nudge">No contact in ${s} days</span>` : ""}</div>
+      <dl class="kv">
+        <dt>Last call</dt><dd>${esc(agoFull(lastOf(p, ["Call"])))}</dd>
+        <dt>Last text</dt><dd>${esc(agoFull(lastOf(p, ["Text"])))}</dd>
+        <dt>In person</dt><dd>${esc(agoFull(lastOf(p, IN_PERSON)))}</dd>
+        <dt>Coming up</dt><dd>${up.length ? up.map(i => `<div class="${i.overdue ? "danger" : ""}">${esc(i.text)} <span class="meta">· ${esc(i.sub)}</span></div>`).join("") : "Nothing scheduled"}</dd>
+      </dl>
+      <div class="row wrap quicklog"><span class="small muted">Just reached out?</span><button class="pill-btn" data-quicklog="Call">Called</button><button class="pill-btn" data-quicklog="Text">Texted</button><button class="pill-btn" data-quicklog="In person">Saw them</button></div>
+    </section>
 
     <section class="card prep stack">
       <div class="row spread"><h3>Before you meet</h3></div>
@@ -473,11 +522,9 @@ function viewPerson(p){
     </section>
 
     <section class="stack">
-      <div class="section-head"><h2>Conversations</h2>${o==="log"?"":`<button class="btn small" data-act="open-log">Log a conversation</button>`}</div>
+      <div class="section-head"><h2>History</h2>${o==="log"?"":`<button class="btn small" data-act="open-log">Log a conversation</button>`}</div>
       ${o==="log" ? logForm(p) : ""}
-      ${logs.length ? `<div class="timeline">${logs.map(l => `<div class="tl"><div class="when">${esc(fmtDate(l.at))} · ${esc(l.type)}</div>
-        ${l.shared?`<p>${esc(l.shared)}</p>`:""}${l.cares?`<p><span class="lbl">Cares about:</span> ${esc(l.cares)}</p>`:""}${l.questions?`<p><span class="lbl">Asked:</span> ${esc(l.questions)}</p>`:""}</div>`).join("")}</div>`
-        : `<div class="card empty">After you talk, log what they shared. Listening well is the heart of this.</div>`}
+      ${historyView(p)}
     </section>
 
     <section class="stack">
@@ -678,7 +725,7 @@ function quietSheet(){
 function toast(msg){ const r = $("#toast-root"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toast.t); toast.t = setTimeout(()=>{ r.innerHTML=""; }, 2600); }
 function cur(){ return S.people.get(S.ui.personId); }
 function go(tab){ S.ui.tab = tab; S.ui.personId = null; S.ui.open = null; render(); window.scrollTo(0,0); }
-function openPerson(id){ S.ui.personId = id; S.ui.open = null; closeSheet(); render(); window.scrollTo(0,0); }
+function openPerson(id){ S.ui.personId = id; S.ui.open = null; S.ui.hist = "All"; closeSheet(); render(); window.scrollTo(0,0); }
 function findTask(pid, tid){ const list = pid ? (S.people.get(pid)?.tasks||[]) : S.meta.tasks; return { list, t: list.find(x=>x.id===tid) }; }
 function toggleTask(pid, tid){
   if (!pid){ const t = S.meta.tasks.find(x=>x.id===tid); if (!t) return; t.done=!t.done; t.doneAt=t.done?today():null; saveMeta(); }
@@ -704,6 +751,9 @@ document.addEventListener("click", async e => {
   if (d.prayed){ const p = S.people.get(d.prayed); p.prayed ||= []; const t = today(); if (p.prayed.includes(t)) p.prayed = p.prayed.filter(x=>x!==t); else { p.prayed.push(t); p.prayed = p.prayed.slice(-60); } savePerson(p); render(); return; }
   if (d.doneTask){ toggleTask(d.pid || null, d.doneTask); return; }
   if (d.toggleTask){ const pid = d.pid !== undefined ? (d.pid || null) : S.ui.personId; toggleTask(pid, d.toggleTask); return; }
+  if (d.hist){ S.ui.hist = d.hist; render(); return; }
+  if (d.quicklog){ const p = cur(); if (!p) return; const entry = { id:uid("l"), at:today(), type:d.quicklog, shared:"", cares:"", questions:"" }; (p.logs ||= []).push(entry); savePerson(p); render(); toast(({ "Call":"Called", "Text":"Texted", "In person":"Saw" }[d.quicklog] || "Logged") + " " + first(p.name) + " today. Tap Add a note below to add details."); return; }
+  if (d.noteLog){ noteSheet(d.noteLog); return; }
   if (d.editTask){ editTaskSheet(d.pid || null, d.editTask); return; }
   if (d.delTask){ const p = cur(); p.tasks = p.tasks.filter(t=>t.id!==d.delTask); savePerson(p); render(); return; }
   if (d.delDate){ const p = cur(); p.dates = p.dates.filter(t=>t.id!==d.delDate); savePerson(p); render(); return; }
@@ -806,6 +856,9 @@ document.addEventListener("submit", e => {
     const pid = v("gt-person"); const tm = v("gt-time"); const t = {id:uid("t"), title:v("gt-title"), due:v("gt-due") || (tm ? today() : null), remindAt: tm || null, done:false}; remindNote(tm, t.due);
     if (pid){ const q = S.people.get(pid); (q.tasks ||= []).push(t); savePerson(q); } else { S.meta.tasks.push(t); saveMeta(); }
     S.ui.open = null; render();
+  } else if (kind === "lognote"){
+    const l = (p?.logs||[]).find(x => x.id === S.noteLog); if (l){ l.shared = v("ln-text"); savePerson(p); }
+    closeSheet(); toast("Note saved"); render();
   } else if (kind === "tedit"){
     if (!editing) return;
     const { t } = taskRef(editing.pid, editing.id); if (!t) { closeSheet(); return; }
