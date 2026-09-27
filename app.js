@@ -32,6 +32,8 @@ const initials = n => (n||"?").replace(/\(.*?\)/g,"").trim().split(/\s+/).slice(
 const weekStart = () => { const d = new Date(); const day = (d.getDay()+6)%7; d.setDate(d.getDate()-day); return dstr(d); };
 const clone = o => JSON.parse(JSON.stringify(o));
 const first = n => (n||"").trim().split(/\s+/)[0] || n;
+const fmtTime = t => { const [h,m] = String(t).split(":").map(Number); return new Date(2000,0,1,h,m).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); };
+function remindNote(tm, due){ if (!tm) return; if (!S.settings.notify) toast("Saved. Turn on Notifications (gear button) to get this reminder."); else toast("You'll get a reminder " + fmtDay(due) + " at " + fmtTime(tm) + "."); }
 
 /* ---------- state ---------- */
 const S = {
@@ -244,9 +246,11 @@ function settingsSheet(){
     notif = `<p class="small muted">This browser can't show notifications. On iPhone, open Tend from its Home Screen icon.</p>`;
   } else {
     notif = `
-      <div class="setting"><div class="grow"><div>Daily reminder</div><div class="small muted">Your next steps and Focus 5, once a day</div></div>
-        <button class="switch" role="switch" aria-checked="${!!s.notify}" data-act="toggle-notify" aria-label="Daily reminder"></button></div>
-      <div class="setting"><div class="grow"><div>Time</div><div class="small muted">${esc(s.tz || Intl.DateTimeFormat().resolvedOptions().timeZone)}</div></div>
+      <div class="setting"><div class="grow"><div>Notifications</div><div class="small muted">Task reminders at the times you set</div></div>
+        <button class="switch" role="switch" aria-checked="${!!s.notify}" data-act="toggle-notify" aria-label="Notifications"></button></div>
+      <div class="setting"><div class="grow"><div>Daily summary</div><div class="small muted">Your next steps and Focus 5, once a day</div></div>
+        <button class="switch" role="switch" aria-checked="${S.meta.dailySummary !== false}" data-act="toggle-daily" aria-label="Daily summary"></button></div>
+      <div class="setting"><div class="grow"><div>Summary time</div><div class="small muted">${esc(s.tz || Intl.DateTimeFormat().resolvedOptions().timeZone)}</div></div>
         <input class="t" type="time" id="set-time" value="${esc(s.time || "07:30")}" style="width:auto"></div>
       ${s.notify ? `<div><button class="btn small ghost" data-act="test-push">Send a test notification</button></div>` : ""}`;
   }
@@ -480,7 +484,7 @@ function viewPerson(p){
       <div class="section-head"><h2>Next steps</h2><button class="linkbtn" data-act="open-task">Add</button></div>
       ${o==="task" ? taskForm(p) : ""}
       <div class="chips wrap">${NEXT_BY_STAGE[p.stage||0].map(x=>`<button class="chip" data-suggest="${esc(x)}">+ ${esc(x)}</button>`).join("")}</div>
-      ${tasks.length ? `<ul class="plain-list">${tasks.map(t=>`<li><button class="check ${t.done?"on":""}" data-toggle-task="${esc(t.id)}" aria-label="${t.done?"Mark not done":"Mark done"}">${t.done?"✓":""}</button><div class="grow"><div class="${t.done?"strike":""}">${esc(t.title)}</div>${t.due?`<div class="meta">${t.done?"Done":"Due "+esc(fmtDay(t.due))}</div>`:""}</div><button class="linkbtn muted" data-del-task="${esc(t.id)}" aria-label="Remove">✕</button></li>`).join("")}</ul>` : ""}
+      ${tasks.length ? `<ul class="plain-list">${tasks.map(t=>`<li><button class="check ${t.done?"on":""}" data-toggle-task="${esc(t.id)}" aria-label="${t.done?"Mark not done":"Mark done"}">${t.done?"✓":""}</button><div class="grow"><div class="${t.done?"strike":""}">${esc(t.title)}</div>${t.due?`<div class="meta">${t.done?"Done":"Due "+esc(fmtDay(t.due))+(t.remindAt?" · Reminder "+esc(fmtTime(t.remindAt)):"")}</div>`:""}</div><button class="linkbtn muted" data-del-task="${esc(t.id)}" aria-label="Remove">✕</button></li>`).join("")}</ul>` : ""}
     </section>
 
     <section class="stack">
@@ -533,7 +537,8 @@ function logForm(p){
 }
 function taskForm(p){
   return `<form class="card stack" data-form="task"><label class="f">Next step<input class="t" id="tk-title" required placeholder="e.g. Text Marcus about the game"></label>
-    <label class="f">When<input class="t" id="tk-due" type="date" value="${addDays(today(),3)}"></label>
+    <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" id="tk-due" type="date" value="${addDays(today(),3)}"></label><label class="f grow">Remind me at<input class="t" id="tk-time" type="time"></label></div>
+    <span class="hint">Leave the time blank if you don't want a phone reminder.</span>
     <div class="row"><button class="btn small">Add</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div></form>`;
 }
 function editForm(p){
@@ -590,10 +595,11 @@ function viewTasks(){
     ${exampleBanner()}
     ${S.ui.open==="gtask" ? `<form class="card stack" data-form="gtask"><label class="f">Task<input class="t" id="gt-title" required placeholder="e.g. Buy a Bible for Dana"></label>
       <label class="f">For<select class="t" id="gt-person"><option value="">No one in particular</option>${people().map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label>
-      <label class="f">When<input class="t" id="gt-due" type="date"></label>
+      <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" id="gt-due" type="date"></label><label class="f grow">Remind me at<input class="t" id="gt-time" type="time"></label></div>
+      <span class="hint">Leave the time blank if you don't want a phone reminder.</span>
       <div class="row"><button class="btn small">Add</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div></form>` : `<div><button class="btn small" data-act="open-gtask">Add a task</button></div>`}
     ${groups.filter(g=>g[1].length).map(([name, list]) => `<section><div class="section-head"><h2>${name}</h2></div>
-      <ul class="plain-list card">${list.map(x=>{ const p = x.personId?byId.get(x.personId):null; return `<li><button class="check" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark done"></button><div class="grow"><div>${esc(x.title)}</div><div class="meta">${p?nameLink(p)+" · ":""}${x.due?esc(fmtDay(x.due)):"No date"}</div></div></li>`; }).join("")}</ul></section>`).join("") || `<div class="card empty">No open tasks. Add a next step from anyone's page.</div>`}
+      <ul class="plain-list card">${list.map(x=>{ const p = x.personId?byId.get(x.personId):null; return `<li><button class="check" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark done"></button><div class="grow"><div>${esc(x.title)}</div><div class="meta">${p?nameLink(p)+" · ":""}${x.due?esc(fmtDay(x.due)):"No date"}${x.remindAt?" · Reminder "+esc(fmtTime(x.remindAt)):""}</div></div></li>`; }).join("")}</ul></section>`).join("") || `<div class="card empty">No open tasks. Add a next step from anyone's page.</div>`}
     ${doneRecent.length ? `<section><div class="section-head"><h2>Done this week</h2></div><ul class="plain-list">${doneRecent.map(x=>`<li><button class="check on" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark not done">✓</button><div class="grow strike">${esc(x.title)}</div></li>`).join("")}</ul></section>`:""}
   </div>`;
 }
@@ -717,11 +723,12 @@ document.addEventListener("click", async e => {
     case "settings": settingsSheet(); break;
     case "toggle-notify": {
       el.disabled = true;
-      if (S.settings.notify){ await disableNotifications(); toast("Daily reminder off"); }
-      else if (await enableNotifications()) toast("Daily reminder on for " + (S.settings.time||"07:30"));
+      if (S.settings.notify){ await disableNotifications(); toast("Notifications off"); }
+      else if (await enableNotifications()) toast("Notifications on");
       settingsSheet(); break; }
     case "test-push": sendTest(el); break;
     case "dismiss-toast": $("#toast-root").innerHTML = ""; break;
+    case "toggle-daily": S.meta.dailySummary = S.meta.dailySummary === false; saveMeta(); settingsSheet(); break;
     case "export": exportData(); break;
     case "signout": await sb.auth.signOut(); USER = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
     case "signin-toggle": S.signin = { step: S.signin.step === "create" ? "signin" : "create", email: ($("#si-email")?.value || S.signin.email || "") }; render(); break;
@@ -765,7 +772,7 @@ document.addEventListener("submit", e => {
     const pr = v("lg-prayer"); if (pr) (p.prayers ||= []).push({id:uid("r"), text:pr, at:entry.at, answeredAt:null});
     savePerson(p); S.ui.open = null; toast("Conversation saved"); render();
   } else if (kind === "task"){
-    (p.tasks ||= []).push({id:uid("t"), title:v("tk-title"), due:v("tk-due")||null, done:false}); savePerson(p); S.ui.open = null; render();
+    const tm = v("tk-time"); const due = v("tk-due") || (tm ? today() : null); (p.tasks ||= []).push({id:uid("t"), title:v("tk-title"), due, remindAt: tm || null, done:false}); savePerson(p); S.ui.open = null; render(); remindNote(tm, due);
   } else if (kind === "prayer"){
     (p.prayers ||= []).push({id:uid("r"), text:v("pr-text"), at:today(), answeredAt:null}); savePerson(p); S.ui.open = null; render();
   } else if (kind === "date"){
@@ -774,7 +781,7 @@ document.addEventListener("submit", e => {
     Object.assign(p, { name:v("ed-name")||p.name, note:v("ed-note"), howMet:v("ed-how"), relationship:v("ed-rel"), family:v("ed-family"), job:v("ed-job"), interests:v("ed-int"), faith:v("ed-faith"), phone:v("ed-phone"), email:v("ed-email") });
     savePerson(p); S.ui.open = null; toast("Saved"); render();
   } else if (kind === "gtask"){
-    const pid = v("gt-person"); const t = {id:uid("t"), title:v("gt-title"), due:v("gt-due")||null, done:false};
+    const pid = v("gt-person"); const tm = v("gt-time"); const t = {id:uid("t"), title:v("gt-title"), due:v("gt-due") || (tm ? today() : null), remindAt: tm || null, done:false}; remindNote(tm, t.due);
     if (pid){ const q = S.people.get(pid); (q.tasks ||= []).push(t); savePerson(q); } else { S.meta.tasks.push(t); saveMeta(); }
     S.ui.open = null; render();
   } else if (kind === "review"){
