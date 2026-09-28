@@ -143,11 +143,12 @@ async function boot(){
   sb = window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(e => console.warn(e));
   const { data: { session } } = await sb.auth.getSession();
-  if (!session){ S.mode = "signin"; render(); return; }
+  if (!session){ S.mode = "signin"; let back = false; try { back = !!localStorage.getItem("tend-returning"); } catch(_){} S.signin = { step: back ? "signin" : "create" }; render(); return; }
   await startSession(session.user);
 }
 async function startSession(user){
   USER = user;
+  try { localStorage.setItem("tend-returning", "1"); } catch(_){}
   pending.set = loadPending();
   try { const raw = localStorage.getItem(cacheKey()); if (raw){ const d = JSON.parse(raw); (d.people||[]).forEach(p => S.people.set(p.id, p)); if (d.meta) S.meta = d.meta; if (d.settings) S.settings = d.settings; S.meta.tasks ||= []; S.mode = "db"; render(); } } catch(_){}
   loadVerses();
@@ -183,10 +184,10 @@ async function doAuth(email, password){
   const res = create ? await sb.auth.signUp({ email, password }) : await sb.auth.signInWithPassword({ email, password });
   if (res.error){
     const m = res.error.message || "";
-    const err = /invalid login/i.test(m) ? "That email and password don't match." :
+    const err = /invalid login/i.test(m) ? "That email and password don't match. New to Tend? Tap \"New here? Create an account\" below." :
                 /already registered|already exists/i.test(m) ? "There's already an account for that email. Sign in instead." :
                 /confirm/i.test(m) ? "Supabase is still asking for email confirmation. Turn off \"Confirm email\" (SETUP.md step 4)." : m;
-    S.signin = { step: S.signin.step, email, err }; render(); return;
+    S.signin = { step: /already registered|already exists/i.test(m) ? "signin" : S.signin.step, email, err }; render(); return;
   }
   if (!res.data.session){
     S.signin = { step:"create", email, err:"Account created, but Supabase wants an email confirmation first. Turn off \"Confirm email\" (SETUP.md step 4), then sign in." }; render(); return;
@@ -352,6 +353,10 @@ function render(){
   document.querySelectorAll(".nav button").forEach(b => { if (b.dataset.tab === tab && !S.ui.personId) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current"); });
 }
 
+function notifyNudge(){
+  if (S.settings.notify || S.meta.nudgeOff || S.examples || realPeople().length === 0) return "";
+  return `<div class="banner info"><div class="grow"><div><b>Get reminders on your phone.</b> Turn on notifications so Tend can remind you about follow-ups and next steps.</div><div class="row wrap"><button class="btn small" data-act="nudge-on">Turn on notifications</button><button class="linkbtn muted" data-act="nudge-off">Not now</button></div></div></div>`;
+}
 function exampleBanner(){
   if (!S.examples) return "";
   return `<div class="banner info"><div class="grow"><div><b>These are example people.</b> They show how Tend works and aren't saved to your account. Add your first person and they'll disappear.</div><div><button class="linkbtn" data-act="hide-examples">Hide examples</button></div></div></div>`;
@@ -392,6 +397,7 @@ function viewToday(){
   <div class="stack-lg">
     ${(v => v ? `<section class="verse"><div class="eyebrow">Today's verse</div><blockquote>${esc(v.text)}</blockquote><div class="row spread"><span class="vref">${esc(v.ref)} · KJV</span><button class="linkbtn" data-copy="${esc(v.text + " (" + v.ref + ", KJV)")}">Copy</button></div></section>` : "")(verseToday())}
     ${exampleBanner()}
+    ${notifyNudge()}
     ${quiet ? `<div class="banner quiet"><div class="grow"><div><b>Quiet mode is on${S.meta.quietUntil!=="on" ? " until " + esc(fmtDay(S.meta.quietUntil)) : ""}.</b> Reminders are paused. Rest is part of faithfulness.</div><div><button class="linkbtn" data-act="quiet-off">Turn off quiet mode</button></div></div></div>` : ""}
     ${quiet ? "" : `<section>
       <div class="section-head"><h2>Next steps</h2>${steps.length>3?`<button class="linkbtn" data-tab-go="tasks">${steps.length-3} more</button>`:""}</div>
@@ -693,6 +699,7 @@ function afterAddSheet(p){
       <button class="chip" data-quick-step="Pray for ${esc(first(p.name))}|7">Pray this week</button>
       <button class="chip" data-quick-step="Invite ${esc(first(p.name))} to coffee|7">Invite to coffee</button></div></div>
     ${canFocus ? `<div class="row spread card"><div><b>Add to Focus 5?</b><div class="small muted">You'll pray for them daily on Today.</div></div><button class="pill-btn" data-act="add-focus">★ Add</button></div>` : ""}
+    ${!S.settings.notify && realPeople().length === 1 ? `<div class="row spread card"><div><b>Want reminders?</b><div class="small muted">Turn on notifications so Tend can remind you to follow up.</div></div><button class="pill-btn" data-act="nudge-on">Turn on</button></div>` : ""}
     <div class="row"><button class="btn" data-act="open-new">Open ${esc(first(p.name))}</button><button class="btn ghost" data-act="close-sheet">Done</button></div></div>`);
   S.lastAdded = p.id;
 }
@@ -811,6 +818,12 @@ document.addEventListener("click", async e => {
     case "tdel-yes": { if (!editing) break; const { pid, id } = editing;
       if (pid){ const q = S.people.get(pid); q.tasks = (q.tasks||[]).filter(x => x.id !== id); savePerson(q); } else { S.meta.tasks = S.meta.tasks.filter(x => x.id !== id); saveMeta(); }
       editing = null; closeSheet(); toast("Task deleted"); render(); break; }
+    case "nudge-on": {
+      if (!pushSupported()){ settingsSheet(); break; }
+      el.disabled = true;
+      if (await enableNotifications()){ toast("Notifications on. You'll get reminders at the times you set."); el.textContent = "On ✓"; render(); } else el.disabled = false;
+      break; }
+    case "nudge-off": S.meta.nudgeOff = true; saveMeta(); render(); break;
     case "toggle-daily": S.meta.dailySummary = S.meta.dailySummary === false; saveMeta(); settingsSheet(); break;
     case "export": exportData(); break;
     case "signout": await sb.auth.signOut(); USER = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
