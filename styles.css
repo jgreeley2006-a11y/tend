@@ -205,3 +205,5 @@ label.f{min-width:0}
 .verse blockquote{margin:8px 0 12px;font-family:var(--serif);font-size:19px;line-height:1.4}
 .verse .vref{font-weight:600;font-size:13px}
 .verse .linkbtn{color:inherit;text-decoration:underline}
+.tl .when.row{gap:8px}
+.tl-edit{font-size:12.5px}

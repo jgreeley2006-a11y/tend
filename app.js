@@ -475,11 +475,26 @@ function historyView(p){
   const list = items.filter(i => !g || g.includes(i.kind)).sort((a,b) => b.sort.localeCompare(a.sort));
   const chips = Object.keys(groups).map(k => `<button class="chip" data-hist="${esc(k)}" aria-pressed="${k===f}">${esc(k)}</button>`).join("");
   const row = i => i.task
-    ? `<div class="tl done-task"><div class="when">${esc(fmtDate(i.task.doneAt))} · Task done</div><p>${esc(i.task.title)}</p></div>`
-    : `<div class="tl"><div class="when">${esc(fmtDate(i.log.at))} · ${esc(LOG_VERB[i.log.type] || i.log.type)}</div>${i.log.shared?`<p>${esc(i.log.shared)}</p>`:""}${i.log.cares?`<p><span class="lbl">Cares about:</span> ${esc(i.log.cares)}</p>`:""}${i.log.questions?`<p><span class="lbl">Asked:</span> ${esc(i.log.questions)}</p>`:""}${!i.log.shared && !i.log.cares && !i.log.questions && i.log.id ? `<button class="linkbtn" data-note-log="${esc(i.log.id)}">Add a note</button>` : ""}</div>`;
+    ? `<div class="tl done-task"><div class="when row spread"><span>${esc(fmtDate(i.task.doneAt))} · Task done</span><button class="linkbtn tl-edit" data-edit-task="${esc(i.task.id)}" data-pid="${esc(p.id)}">Edit</button></div><p>${esc(i.task.title)}</p></div>`
+    : `<div class="tl"><div class="when row spread"><span>${esc(fmtDate(i.log.at))} · ${esc(LOG_VERB[i.log.type] || i.log.type)}</span>${i.log.id ? `<button class="linkbtn tl-edit" data-edit-log="${esc(i.log.id)}">Edit</button>` : ""}</div>${i.log.shared?`<p>${esc(i.log.shared)}</p>`:""}${i.log.cares?`<p><span class="lbl">Cares about:</span> ${esc(i.log.cares)}</p>`:""}${i.log.questions?`<p><span class="lbl">Asked:</span> ${esc(i.log.questions)}</p>`:""}${!i.log.shared && !i.log.cares && !i.log.questions && i.log.id ? `<button class="linkbtn" data-edit-log="${esc(i.log.id)}">Add a note</button>` : ""}</div>`;
   return `<div class="chips" role="group" aria-label="Filter history">${chips}</div>` + (list.length
     ? `<div class="timeline">${list.map(row).join("")}</div>`
     : `<div class="card empty">${f === "All" ? "Tap Called, Texted, or Saw them after you reach out, or log a longer conversation." : "Nothing here yet."}</div>`);
+}
+function editLogSheet(logId, confirmDelete){
+  const p = cur(); const l = (p?.logs||[]).find(x => x.id === logId); if (!l) return;
+  S.editLog = logId;
+  const types = LOG_TYPES.includes(l.type) ? LOG_TYPES : [l.type, ...LOG_TYPES];
+  openSheet(`<form class="stack" data-form="logedit">
+    <h2>Edit entry</h2>
+    <p class="small muted" style="margin:0">With ${esc(p.name)}</p>
+    <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Type<select class="t" id="le-type">${types.map(t => `<option value="${esc(t)}" ${t === l.type ? "selected" : ""}>${esc(LOG_VERB[t] || t)}</option>`).join("")}</select></label><label class="f grow">Date<input class="t" id="le-date" type="date" value="${esc(l.at)}"></label></div>
+    <label class="f">What did ${esc(first(p.name))} share?<textarea class="t" id="le-shared" placeholder="Their words, their news, what's on their heart">${esc(l.shared||"")}</textarea></label>
+    <label class="f">What do they care about?<input class="t" id="le-cares" value="${esc(l.cares||"")}"></label>
+    <label class="f">Questions they asked<input class="t" id="le-q" value="${esc(l.questions||"")}"></label>
+    ${confirmDelete ? `<div class="card stack"><div>Delete this entry? This can't be undone.</div><div class="row"><button type="button" class="btn small" style="background:var(--warn)" data-act="ldel-yes">Delete</button><button type="button" class="btn small ghost" data-act="ldel-no">Keep it</button></div></div>` : ""}
+    <div class="row wrap"><button class="btn">Save</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button><button type="button" class="linkbtn danger" data-act="ldel-ask" style="margin-left:auto">Delete entry</button></div>
+  </form>`);
 }
 function noteSheet(logId){
   const p = cur(); const l = (p?.logs||[]).find(x => x.id === logId); if (!l) return;
@@ -772,6 +787,7 @@ document.addEventListener("click", async e => {
   if (d.hist){ S.ui.hist = d.hist; render(); return; }
   if (d.quicklog){ const p = cur(); if (!p) return; const entry = { id:uid("l"), at:today(), type:d.quicklog, shared:"", cares:"", questions:"" }; (p.logs ||= []).push(entry); savePerson(p); render(); toast(({ "Call":"Called", "Text":"Texted", "In person":"Saw" }[d.quicklog] || "Logged") + " " + first(p.name) + " today. Tap Add a note below to add details."); return; }
   if (d.noteLog){ noteSheet(d.noteLog); return; }
+  if (d.editLog){ editLogSheet(d.editLog); return; }
   if (d.editTask){ editTaskSheet(d.pid || null, d.editTask); return; }
   if (d.delTask){ const p = cur(); p.tasks = p.tasks.filter(t=>t.id!==d.delTask); savePerson(p); render(); return; }
   if (d.delDate){ const p = cur(); p.dates = p.dates.filter(t=>t.id!==d.delDate); savePerson(p); render(); return; }
@@ -824,6 +840,9 @@ document.addEventListener("click", async e => {
       if (await enableNotifications()){ toast("Notifications on. You'll get reminders at the times you set."); el.textContent = "On ✓"; render(); } else el.disabled = false;
       break; }
     case "nudge-off": S.meta.nudgeOff = true; saveMeta(); render(); break;
+    case "ldel-ask": if (S.editLog) editLogSheet(S.editLog, true); break;
+    case "ldel-no": if (S.editLog) editLogSheet(S.editLog, false); break;
+    case "ldel-yes": { const p = cur(); if (p && S.editLog){ p.logs = (p.logs||[]).filter(x => x.id !== S.editLog); savePerson(p); } S.editLog = null; closeSheet(); toast("Entry deleted"); render(); break; }
     case "toggle-daily": S.meta.dailySummary = S.meta.dailySummary === false; saveMeta(); settingsSheet(); break;
     case "export": exportData(); break;
     case "signout": await sb.auth.signOut(); USER = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
@@ -880,6 +899,10 @@ document.addEventListener("submit", e => {
     const pid = v("gt-person"); const tm = v("gt-time"); const t = {id:uid("t"), title:v("gt-title"), due:v("gt-due") || (tm ? today() : null), remindAt: tm || null, done:false}; remindNote(tm, t.due);
     if (pid){ const q = S.people.get(pid); (q.tasks ||= []).push(t); savePerson(q); } else { S.meta.tasks.push(t); saveMeta(); }
     S.ui.open = null; render();
+  } else if (kind === "logedit"){
+    const l = (p?.logs||[]).find(x => x.id === S.editLog);
+    if (l){ l.type = v("le-type") || l.type; l.at = v("le-date") || l.at; l.shared = v("le-shared"); l.cares = v("le-cares"); l.questions = v("le-q"); savePerson(p); }
+    S.editLog = null; closeSheet(); toast("Entry updated"); render();
   } else if (kind === "lognote"){
     const l = (p?.logs||[]).find(x => x.id === S.noteLog); if (l){ l.shared = v("ln-text"); savePerson(p); }
     closeSheet(); toast("Note saved"); render();
