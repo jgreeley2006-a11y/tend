@@ -207,3 +207,23 @@ label.f{min-width:0}
 .verse .linkbtn{color:inherit;text-decoration:underline}
 .tl .when.row{gap:8px}
 .tl-edit{font-size:12.5px}
+
+/* ---------- Church family: a second, warm color ---------- */
+:root{ --reach:#3E6B34; --fam:#9A5B17; --fam-ink:#FFFFFF; --fam-soft:#F6E7D2; }
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --reach:#8FBF73; --fam:#E3A966; --fam-ink:#1C1309; --fam-soft:#3A2C1C; }
+}
+:root[data-theme="dark"]{ --reach:#8FBF73; --fam:#E3A966; --fam-ink:#1C1309; --fam-soft:#3A2C1C; }
+/* Everything that uses the accent turns amber while you're in Church family */
+body[data-circle="family"], .fam{ --accent:var(--fam); --accent-ink:var(--fam-ink); --accent-soft:var(--fam-soft); }
+.avatar.fam, .stage.fam{ background:var(--fam-soft); color:var(--fam); }
+.ic{width:16px;height:16px;flex:none}
+.circles{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--surface-2);border-radius:12px;padding:4px}
+.circles button{border:0;background:none;border-radius:9px;padding:9px 8px;font-weight:600;font-size:14px;color:var(--ink-3);display:flex;align-items:center;justify-content:center;gap:6px}
+.circles button[aria-selected="true"], .circles button[aria-checked="true"]{background:var(--surface);box-shadow:var(--shadow)}
+.circles .reach[aria-selected="true"], .circles .reach[aria-checked="true"]{color:var(--reach)}
+.circles .family[aria-selected="true"], .circles .family[aria-checked="true"]{color:var(--fam)}
+.circles .count{font-size:12px;font-weight:600;opacity:.75}
+.circle-tag{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--fam);margin-bottom:2px}
+.circle-tag .ic{width:14px;height:14px}
+.fam-btn{background:var(--fam);color:var(--fam-ink);display:inline-flex;align-items:center;gap:6px}

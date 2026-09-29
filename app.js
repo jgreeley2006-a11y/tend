@@ -17,6 +17,27 @@ const NEXT_BY_STAGE = [
   ["Meet regularly to grow","Ask how you can pray","Encourage them to share their story"]
 ];
 
+/* ---------- church family (members you want to know better) ---------- */
+const DEPTHS = ["Recognize","Acquainted","Connected","Friend","Walking together"];
+const WHERE_SEEN = ["Sunday service","Small group","Serving team","Bible study","Kids ministry","Other"];
+const NEXT_BY_DEPTH = [
+  ["Learn their name","Say hello next Sunday","Note one thing about them"],
+  ["Ask how they came to the church","Sit with them on Sunday","Learn their family's names"],
+  ["Invite them for coffee or a meal","Ask how you can pray for them","Follow up on a prayer request"],
+  ["Have them over to your home","Check in midweek","Remember a key date"],
+  ["Study Scripture together","Serve side by side","Pray together regularly"]
+];
+const DEPTH_QUESTIONS = ["\"I don't think we've met yet. What's your name?\"","\"How did you end up at this church?\"","\"How can I be praying for you this week?\"","\"What's been the hardest and best part of your month?\"","\"What's God been teaching you lately?\""];
+const ICON_SEED = `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21v-9"/><path d="M12 12c0-4 3-6.5 7.5-6.5 0 4-3 6.5-7.5 6.5z"/><path d="M12 14.5c0-3.2-2.4-5.5-6.5-5.5 0 3.2 2.4 5.5 6.5 5.5z"/></svg>`;
+const ICON_HOME = `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5h4v5"/></svg>`;
+const isFam = p => !!p && p.circle === "family";
+const depthOf = p => Math.min(DEPTHS.length - 1, Math.max(0, p.depth || 0));
+const levels = p => isFam(p) ? DEPTHS : STAGES;
+const levelShort = p => isFam(p) ? DEPTHS : STAGE_SHORT;
+const levelOf = p => isFam(p) ? depthOf(p) : (p.stage || 0);
+const avatar = (p, style="") => `<div class="avatar${isFam(p) ? " fam" : ""}"${style ? ` style="${style}"` : ""}>${esc(initials(p.name))}</div>`;
+function selectOpts(list, val){ const all = val && !list.includes(val) ? [val, ...list] : list; return all.map(x => `<option ${x===val?"selected":""}>${esc(x)}</option>`).join(""); }
+
 /* ---------- helpers ---------- */
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -42,7 +63,7 @@ const S = {
   settings: { notify:false, time:"07:30", tz:null },
   mode: "loading",         // loading | signin | db
   examples: false,
-  ui: { tab:"today", personId:null, stageFilter:"All", q:"", open:null },
+  ui: { tab:"today", personId:null, stageFilter:"All", q:"", open:null, circle:"reach" },
   signin: { step:"signin" },
   syncMsg: "",
   ai: null,
@@ -351,7 +372,13 @@ function render(){
   if (personId && S.people.has(personId)) app.innerHTML = viewPerson(S.people.get(personId));
   else { S.ui.personId = null; app.innerHTML = tab === "people" ? viewPeople() : tab === "prayer" ? viewPrayer() : tab === "tasks" ? viewTasks() : viewToday(); }
   document.querySelectorAll(".nav button").forEach(b => { if (b.dataset.tab === tab && !S.ui.personId) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current"); });
+  syncCircle();
 }
+function viewCircle(){
+  if (S.ui.personId) return isFam(S.people.get(S.ui.personId)) ? "family" : "reach";
+  return S.ui.tab === "people" && S.ui.circle === "family" ? "family" : "reach";
+}
+function syncCircle(c){ document.body.dataset.circle = c || viewCircle(); }
 
 function notifyNudge(){
   if (S.settings.notify || S.meta.nudgeOff || S.examples || realPeople().length === 0) return "";
@@ -363,8 +390,8 @@ function exampleBanner(){
 }
 function storageNote(){ return `<p class="sync" id="sync" role="status">${esc(S.syncMsg||"")}</p>`; }
 
-function stageTag(p){ return `<span class="stage">${esc(STAGE_SHORT[p.stage||0])}</span>`; }
-function nameLink(p){ return `<button class="who" data-open="${esc(p.id)}">${esc(p.name)}</button>`; }
+function stageTag(p){ return `<span class="stage${isFam(p) ? " fam" : ""}">${esc(levelShort(p)[levelOf(p)])}</span>`; }
+function nameLink(p){ return `<button class="who${isFam(p) ? " fam" : ""}" data-open="${esc(p.id)}">${esc(p.name)}</button>`; }
 
 /* Today */
 function todaySteps(){
@@ -425,27 +452,34 @@ function viewToday(){
 function prayRow(p){
   const needs = (p.prayers||[]).filter(r => !r.answeredAt).map(r => r.text).join(" · ");
   const done = (p.prayed||[]).includes(today());
-  return `<div class="pray"><div class="avatar">${esc(initials(p.name))}</div><div class="grow"><div class="pname">${nameLink(p)}</div><div class="needs">${esc(needs || "No prayer needs yet")}</div></div>
+  return `<div class="pray">${avatar(p)}<div class="grow"><div class="pname">${nameLink(p)}</div><div class="needs">${esc(needs || "No prayer needs yet")}</div></div>
     <button class="pill-btn ${done?"on":""}" data-prayed="${esc(p.id)}" aria-pressed="${done}">${done?"Prayed ✓":"Prayed"}</button></div>`;
 }
 
 /* People */
 function viewPeople(){
   const q = S.ui.q.toLowerCase(); const f = S.ui.stageFilter;
-  let list = people().filter(p => (f==="All" || (f==="Focus 5" ? p.focus : STAGES[p.stage||0]===f)) && (!q || JSON.stringify([p.name,p.note,p.howMet,p.relationship,p.job,p.interests]).toLowerCase().includes(q)));
+  const fam = S.ui.circle === "family"; const names = fam ? DEPTHS : STAGES;
+  const all = people(); const inCircle = all.filter(p => isFam(p) === fam);
+  const nFam = all.filter(isFam).length, nReach = all.length - nFam;
+  let list = inCircle.filter(p => (f==="All" || (f==="Focus 5" ? p.focus : names[levelOf(p)]===f)) && (!q || JSON.stringify([p.name,p.note,p.howMet,p.relationship,p.job,p.interests]).toLowerCase().includes(q)));
   list.sort((a,b) => (b.focus?1:0)-(a.focus?1:0) || a.name.localeCompare(b.name));
-  const filters = ["All","Focus 5",...STAGES];
+  const filters = ["All","Focus 5",...names];
   return `
-  <div class="top"><div><div class="date">${people().length} ${people().length===1?"person":"people"}</div><h1>My People</h1></div></div>
+  <div class="top"><div><div class="date">${inCircle.length} ${inCircle.length===1?"person":"people"}</div><h1>My People</h1></div></div>
   <div class="stack">
-    ${exampleBanner()}
+    <div class="circles" role="tablist" aria-label="Which people">
+      <button role="tab" class="reach" data-circle="reach" aria-selected="${!fam}">${ICON_SEED}Reaching<span class="count">${nReach}</span></button>
+      <button role="tab" class="family" data-circle="family" aria-selected="${fam}">${ICON_HOME}Church family<span class="count">${nFam}</span></button>
+    </div>
+    ${fam ? `<p class="small muted" style="margin:0">Members you want to know better, one step deeper at a time.</p>` : exampleBanner()}
     <input class="search" id="people-q" type="search" placeholder="Search names, notes, interests" value="${esc(S.ui.q)}">
     <div class="chips" role="group" aria-label="Filter by stage">${filters.map(x => `<button class="chip" data-filter="${esc(x)}" aria-pressed="${x===f}">${esc(x)}</button>`).join("")}</div>
     ${list.length ? `<div class="plist">${list.map(p => { const s = sinceContact(p); return `
-      <button class="pitem" data-open="${esc(p.id)}"><div class="avatar">${esc(initials(p.name))}</div>
+      <button class="pitem" data-open="${esc(p.id)}">${avatar(p)}
         <div class="grow"><div class="pname">${esc(p.name)} ${p.focus?`<span class="star" aria-label="Focus 5">★</span>`:""} ${p.example?`<span class="ex">Example</span>`:""}</div>
         <div class="meta">${esc(p.howMet||"")}${p.howMet?" · ":""}${esc(lastContactLabel(p) || "No contact logged")}</div></div>${stageTag(p)}</button>`; }).join("")}</div>`
-      : `<div class="card empty">${people().length ? "No one matches that search." : "No one here yet. Tap Add person after your next conversation."}</div>`}
+      : `<div class="card empty">${inCircle.length ? "No one matches that search." : fam ? "No church family here yet. After Sunday, tap Add person for someone you'd like to know better. Already have someone on your list who joined the church? Open them and tap Move to Church family." : "No one here yet. Tap Add person after your next conversation."}</div>`}
     ${storageNote()}
   </div>`;
 }
@@ -534,12 +568,12 @@ function viewPerson(p){
   <div class="stack-lg">
     ${p.example ? `<div class="banner info"><div class="grow"><div><b>Example person.</b> Changes here aren't saved.</div></div></div>` : ""}
     <div class="stack">
-      <div class="phead"><div class="avatar">${esc(initials(p.name))}</div>
-        <div class="grow"><h1 style="font-size:26px">${esc(p.name)}</h1><div class="meta">${esc([p.howMet, p.relationship].filter(Boolean).join(" · "))}${s!==null?` · last contact ${s===0?"today":s+"d ago"}`:""}</div></div>
+      <div class="phead">${avatar(p)}
+        <div class="grow">${isFam(p) ? `<div class="circle-tag">${ICON_HOME}Church family</div>` : ""}<h1 style="font-size:26px">${esc(p.name)}</h1><div class="meta">${esc([p.howMet, p.relationship].filter(Boolean).join(" · "))}${s!==null?` · last contact ${s===0?"today":s+"d ago"}`:""}</div></div>
         <button class="pill-btn ${p.focus?"on":""}" data-act="focus" aria-pressed="${!!p.focus}" ${!p.focus && focusCount>=5 ? `title="Focus 5 is full"`:""}>${p.focus?"★ Focus 5":"☆ Focus 5"}</button></div>
       <div>
-        <div class="row spread"><span class="stage-label">Stage: <b>${esc(STAGES[p.stage||0])}</b></span><span class="small muted">Tap to change</span></div>
-        <div class="stagebar" role="group" aria-label="Journey stage">${STAGES.map((st,i)=>`<button class="${i<=(p.stage||0)?"done":""}" data-stage="${i}" aria-label="${esc(st)}" title="${esc(st)}"></button>`).join("")}</div>
+        <div class="row spread"><span class="stage-label">${isFam(p) ? "How well I know them" : "Stage"}: <b>${esc(levels(p)[levelOf(p)])}</b></span><span class="small muted">Tap to change</span></div>
+        <div class="stagebar" style="grid-template-columns:repeat(${levels(p).length},1fr)" role="group" aria-label="${isFam(p) ? "How well I know them" : "Journey stage"}">${levels(p).map((st,i)=>`<button class="${i<=levelOf(p)?"done":""}" data-stage="${i}" aria-label="${esc(st)}" title="${esc(st)}"></button>`).join("")}</div>
       </div>
     </div>
 
@@ -576,7 +610,7 @@ function viewPerson(p){
     <section class="stack">
       <div class="section-head"><h2>Next steps</h2><button class="linkbtn" data-act="open-task">Add</button></div>
       ${o==="task" ? taskForm(p) : ""}
-      <div class="chips wrap">${NEXT_BY_STAGE[p.stage||0].map(x=>`<button class="chip" data-suggest="${esc(x)}">+ ${esc(x)}</button>`).join("")}</div>
+      <div class="chips wrap">${(isFam(p) ? NEXT_BY_DEPTH[depthOf(p)] : NEXT_BY_STAGE[p.stage||0]).map(x=>`<button class="chip" data-suggest="${esc(x)}">+ ${esc(x)}</button>`).join("")}</div>
       ${tasks.length ? `<ul class="plain-list">${tasks.map(t=>`<li><button class="check ${t.done?"on":""}" data-toggle-task="${esc(t.id)}" aria-label="${t.done?"Mark not done":"Mark done"}">${t.done?"✓":""}</button><div class="grow"><button class="tasktitle ${t.done?"strike":""}" data-edit-task="${esc(t.id)}" data-pid="${esc(p.id)}">${esc(t.title)}</button>${t.due?`<div class="meta">${t.done?"Done":"Due "+esc(fmtDay(t.due))+(t.remindAt?" · Reminder "+esc(fmtTime(t.remindAt)):"")}</div>`:""}</div><button class="linkbtn muted" data-del-task="${esc(t.id)}" aria-label="Remove">✕</button></li>`).join("")}</ul>` : ""}
     </section>
 
@@ -598,15 +632,19 @@ function viewPerson(p){
       ${o==="edit" ? editForm(p) : `
       <dl class="kv">
         <dt>What I know</dt><dd>${esc(p.note||"—")}</dd>
-        <dt>How we met</dt><dd>${esc([p.howMet, p.metOn?fmtDate(p.metOn):""].filter(Boolean).join(", ")||"—")}</dd>
+        <dt>${isFam(p) ? "Where I see them" : "How we met"}</dt><dd>${esc([p.howMet, p.metOn?fmtDate(p.metOn):""].filter(Boolean).join(", ")||"—")}</dd>
         <dt>Family</dt><dd>${esc(p.family||"—")}</dd>
         <dt>Work</dt><dd>${esc(p.job||"—")}</dd>
         <dt>Interests</dt><dd>${esc(p.interests||"—")}</dd>
-        <dt>Faith</dt><dd>${esc(p.faith||"—")}</dd>
+        ${isFam(p) ? "" : `<dt>Faith</dt><dd>${esc(p.faith||"—")}</dd>`}
         <dt>Phone</dt><dd>${p.phone?`<span>${esc(p.phone)}</span> <button class="linkbtn" data-copy="${esc(p.phone)}">Copy</button>`:"—"}</dd>
         <dt>Email</dt><dd>${p.email?`<span>${esc(p.email)}</span> <button class="linkbtn" data-copy="${esc(p.email)}">Copy</button>`:"—"}</dd>
       </dl>`}
     </section>
+
+    <section class="card stack move">${isFam(p)
+      ? `<div><b>Church family</b><div class="small muted">Someone you're getting to know at church.</div></div><div><button class="linkbtn" data-act="move-circle">Move back to Reaching</button></div>`
+      : `<div><b>Did ${esc(first(p.name))} join the church?</b><div class="small muted">Move them to Church family. Everything you've logged stays.</div></div><div><button class="btn small fam-btn" data-act="move-circle">${ICON_HOME} Move to Church family</button></div>`}</section>
 
     <section>${o==="delete" ? `<div class="card stack"><div>Remove ${esc(p.name)} and everything you've logged about them? This can't be undone.</div><div class="row"><button class="btn small" style="background:var(--warn)" data-act="delete-yes">Remove</button><button class="btn small ghost" data-act="close">Keep</button></div></div>` : `<button class="linkbtn danger" data-act="delete">Remove from my list</button>`}</section>
   </div>`;
@@ -615,7 +653,7 @@ function suggestQuestion(p, last, openPrayers){
   if (openPrayers[0]) return `"I've been praying about ${openPrayers[0].text.replace(/^(his|her)\s+/i,"your ").replace(/^./,c=>c.toLowerCase())}. How's that going?"`;
   if (last && last.cares) return `"You mentioned ${last.cares.toLowerCase()}. How's that going?"`;
   const byStage = ["\"What's been the best part of your week?\"","\"What was growing up like for you?\"","\"Where are you at with God these days?\"","\"What questions are still on your mind?\"","\"What's God been showing you lately?\"","\"Who in your life could use what you've found?\""];
-  return byStage[p.stage||0];
+  return isFam(p) ? DEPTH_QUESTIONS[depthOf(p)] : byStage[p.stage||0];
 }
 function logForm(p){
   return `<form class="card stack" data-form="log">
@@ -639,12 +677,12 @@ function editForm(p){
   return `<form class="card stack" data-form="edit">
     ${f("ed-name","Name",p.name)}
     <label class="f">What I know about them<textarea class="t" id="ed-note" placeholder="Write it as if they might read it someday">${esc(p.note||"")}</textarea></label>
-    <label class="f">How we met<select class="t" id="ed-how"><option value=""></option>${HOW_MET.map(x=>`<option ${x===p.howMet?"selected":""}>${x}</option>`).join("")}</select></label>
+    <label class="f">${isFam(p) ? "Where you see them" : "How we met"}<select class="t" id="ed-how"><option value=""></option>${selectOpts(isFam(p) ? WHERE_SEEN : HOW_MET, p.howMet)}</select></label>
     ${f("ed-rel","Relationship",p.relationship,"Coworker, cousin, neighbor two doors down")}
     ${f("ed-family","Family",p.family,"Names of spouse, kids, parents")}
     ${f("ed-job","Work",p.job)}
     ${f("ed-int","Interests",p.interests)}
-    <label class="f">Faith background<select class="t" id="ed-faith"><option value=""></option>${FAITH.map(x=>`<option ${x===p.faith?"selected":""}>${x}</option>`).join("")}</select></label>
+    ${isFam(p) ? "" : `<label class="f">Faith background<select class="t" id="ed-faith"><option value=""></option>${FAITH.map(x=>`<option ${x===p.faith?"selected":""}>${x}</option>`).join("")}</select></label>`}
     ${f("ed-phone","Phone",p.phone)}
     ${f("ed-email","Email",p.email)}
     <div class="row"><button class="btn small">Save</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div>
@@ -702,15 +740,25 @@ function openSheet(html){
   $("#sheet-root").innerHTML = `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
   const f = $("#sheet-root [data-autofocus]"); if (f) setTimeout(()=>f.focus(), 50);
 }
-function closeSheet(){ $("#sheet-root").innerHTML = ""; }
+function closeSheet(){ $("#sheet-root").innerHTML = ""; syncCircle(); }
 
-let addDraft = { how:"" };
-function addSheet(){
-  addDraft = { how:"" };
+let addDraft = { how:"", circle:"reach" };
+function howChips(){
+  const fam = addDraft.circle === "family";
+  return `<span class="f">${fam ? "Where you see them" : "How you met"}</span><div class="chips wrap" role="group">${(fam ? WHERE_SEEN : HOW_MET).map(x=>`<button type="button" class="chip" data-how="${esc(x)}" aria-pressed="${x===addDraft.how}">${esc(x)}</button>`).join("")}</div>`;
+}
+function addSheet(circle){
+  addDraft = { how:"", circle: circle || viewCircle() };
+  syncCircle(addDraft.circle);
+  const fam = addDraft.circle === "family";
   openSheet(`<form class="stack" data-form="add" autocomplete="off">
     <h2>Add a person</h2>
-    <label class="f">Name<input class="t" id="ad-name" data-autofocus required placeholder="Mike from the gym is fine"></label>
-    <div class="f" style="display:flex;flex-direction:column;gap:6px"><span class="f">How you met</span><div class="chips wrap" role="group">${HOW_MET.map(x=>`<button type="button" class="chip" data-how="${esc(x)}" aria-pressed="false">${esc(x)}</button>`).join("")}</div></div>
+    <div class="circles" role="radiogroup" aria-label="Who is this">
+      <button type="button" role="radio" class="reach" data-add-circle="reach" aria-checked="${!fam}">${ICON_SEED}Reaching</button>
+      <button type="button" role="radio" class="family" data-add-circle="family" aria-checked="${fam}">${ICON_HOME}Church family</button>
+    </div>
+    <label class="f">Name<input class="t" id="ad-name" data-autofocus required placeholder="${fam ? "Sarah from the 9am service is fine" : "Mike from the gym is fine"}"></label>
+    <div class="f" id="how-chips" style="display:flex;flex-direction:column;gap:6px">${howChips()}</div>
     <label class="f">First note<textarea class="t" id="ad-note" placeholder="Write it as if they might read it someday"></textarea><span class="hint">Tip: tap your keyboard's mic to talk instead of type.</span></label>
     ${S.ai ? `<details class="card"><summary style="font-weight:600;cursor:pointer">Describe the conversation instead</summary>
       <div class="stack" style="margin-top:10px"><textarea class="t" id="ad-voice" placeholder="Met Carlos at my son's game. His dad just passed. He coaches the Tigers."></textarea>
@@ -724,7 +772,7 @@ function afterAddSheet(p){
   const canFocus = focusPeople().length < 5;
   openSheet(`<div class="stack"><h2>${esc(first(p.name))} is on your list</h2>
     <div class="stack"><span class="f">Add a next step?</span><div class="chips wrap">
-      <button class="chip" data-quick-step="Text ${esc(first(p.name))}|3">Text in 3 days</button>
+      ${isFam(p) ? `<button class="chip" data-quick-step="Say hi to ${esc(first(p.name))} on Sunday|7">Say hi next Sunday</button>` : `<button class="chip" data-quick-step="Text ${esc(first(p.name))}|3">Text in 3 days</button>`}
       <button class="chip" data-quick-step="Pray for ${esc(first(p.name))}|7">Pray this week</button>
       <button class="chip" data-quick-step="Invite ${esc(first(p.name))} to coffee|7">Invite to coffee</button></div></div>
     ${canFocus ? `<div class="row spread card"><div><b>Add to Focus 5?</b><div class="small muted">You'll pray for them daily on Today.</div></div><button class="pill-btn" data-act="add-focus">★ Add</button></div>` : ""}
@@ -755,7 +803,7 @@ function reviewSheet(){
   openSheet(`<form class="stack" data-form="review">
     <h2>Weekly review</h2>
     <div class="stack"><h3>1. What God answered</h3>${answered.length?`<ul class="plain-list">${answered.map(({p,r})=>`<li><span class="star">✓</span><div>${esc(r.text)} <span class="meta">· ${esc(p.name)}</span></div></li>`).join("")}</ul>`:`<p class="small muted">No answered prayers marked this week. Is there one to mark?</p>`}</div>
-    <div class="stack"><h3>2. Gone quiet</h3>${quiet.length?`<p class="small muted">No contact in 30+ days. No guilt; just notice.</p><ul class="plain-list">${quiet.slice(0,6).map(p=>`<li><div class="avatar" style="width:28px;height:28px;font-size:11px">${esc(initials(p.name))}</div><div class="grow">${esc(p.name)}</div></li>`).join("")}</ul>`:`<p class="small muted">Everyone's been in touch this month.</p>`}</div>
+    <div class="stack"><h3>2. Gone quiet</h3>${quiet.length?`<p class="small muted">No contact in 30+ days. No guilt; just notice.</p><ul class="plain-list">${quiet.slice(0,6).map(p=>`<li>${avatar(p, "width:28px;height:28px;font-size:11px")}<div class="grow">${esc(p.name)}</div></li>`).join("")}</ul>`:`<p class="small muted">Everyone's been in touch this month.</p>`}</div>
     <div class="stack"><h3>3. Three steps for this week</h3>
       ${[0,1,2].map(i=>`<div class="row wrap" style="gap:8px"><select class="t" id="rv-p${i}" style="flex:1 1 140px"><option value="">Who?</option>${people().map(p=>`<option value="${esc(p.id)}" ${quiet[i]&&quiet[i].id===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select><input class="t" id="rv-t${i}" style="flex:2 1 180px" placeholder="Step"></div>`).join("")}
     </div>
@@ -793,6 +841,8 @@ document.addEventListener("click", async e => {
   if (d.tab){ go(d.tab); return; }
   if (d.tabGo){ go(d.tabGo); return; }
   if (el.id === "fab"){ addSheet(); return; }
+  if (d.circle){ S.ui.circle = d.circle; S.ui.stageFilter = "All"; render(); return; }
+  if (d.addCircle){ const nm = $("#ad-name")?.value || ""; const nt = $("#ad-note")?.value || ""; addSheet(d.addCircle); $("#ad-name").value = nm; $("#ad-note").value = nt; return; }
   if (d.open){ openPerson(d.open); return; }
   if (d.filter){ S.ui.stageFilter = d.filter; render(); return; }
   if (d.prayed){ const p = S.people.get(d.prayed); p.prayed ||= []; const t = today(); if (p.prayed.includes(t)) p.prayed = p.prayed.filter(x=>x!==t); else { p.prayed.push(t); p.prayed = p.prayed.slice(-60); } savePerson(p); render(); return; }
@@ -806,6 +856,7 @@ document.addEventListener("click", async e => {
   if (d.editTask){ editTaskSheet(d.pid || null, d.editTask); return; }
   if (d.delTask){ const p = cur(); p.tasks = p.tasks.filter(t=>t.id!==d.delTask); savePerson(p); render(); return; }
   if (d.delDate){ const p = cur(); p.dates = p.dates.filter(t=>t.id!==d.delDate); savePerson(p); render(); return; }
+  if (d.stage !== undefined && isFam(cur())){ const p = cur(); const s = +d.stage; if (s !== depthOf(p)){ p.depth = s; (p.depthHistory ||= []).push({depth:s, at:today()}); savePerson(p); toast(DEPTHS[s]); render(); } return; }
   if (d.stage !== undefined){ const p = cur(); const s = +d.stage; if (s !== p.stage){ p.stage = s; (p.stageHistory ||= []).push({stage:s, at:today()}); savePerson(p); toast("Stage: " + STAGES[s]); render(); } return; }
   if (d.suggest){ const p = cur(); (p.tasks ||= []).push({id:uid("t"), title:d.suggest, due:addDays(today(),7), done:false}); savePerson(p); toast("Added for this week"); render(); return; }
   if (d.answer){ const p = cur(); const r = p.prayers.find(x=>x.id===d.answer); r.answeredAt = today(); savePerson(p); toast("Praise God. Added to Answered."); render(); return; }
@@ -831,6 +882,10 @@ document.addEventListener("click", async e => {
     case "focus": { const p = cur(); if (!p.focus && focusPeople().length >= 5){ toast("Focus 5 is full. Unstar someone first."); break; } p.focus = !p.focus; savePerson(p); render(); break; }
     case "add-focus": { const p = S.people.get(S.lastAdded); if (p && focusPeople().length < 5){ p.focus = true; savePerson(p); el.classList.add("on"); el.textContent = "★ Added"; el.disabled = true; } break; }
     case "open-new": openPerson(S.lastAdded); break;
+    case "move-circle": { const p = cur(); if (!p) break;
+      if (isFam(p)){ p.circle = "reach"; toast(first(p.name) + " moved to Reaching"); }
+      else { p.circle = "family"; if (p.depth === undefined) p.depth = (p.stage||0) >= 4 ? 3 : 1; (p.circleHistory ||= []).push({ circle:"family", at:today() }); toast("Welcome to the family, " + first(p.name) + "!"); }
+      S.ui.circle = p.circle; S.ui.stageFilter = "All"; savePerson(p); render(); window.scrollTo(0,0); break; }
     case "hide-examples": S.meta.hideExamples = true; saveMeta(); render(); break;
     case "review": reviewSheet(); break;
     case "quiet": quietSheet(); break;
@@ -890,10 +945,11 @@ document.addEventListener("submit", e => {
     }
     const p = newPerson(name);
     p.howMet = addDraft.how; p.note = v("ad-note");
+    if (addDraft.circle === "family"){ p.circle = "family"; p.depth = 0; if (S.ui.tab === "people") S.ui.circle = "family"; }
     if (addDraft.ai){ const a = addDraft.ai; if (a.prayer) p.prayers.push({id:uid("r"), text:a.prayer, at:today(), answeredAt:null}); if (a.task) p.tasks.push({id:uid("t"), title:a.task, due:addDays(today(), 3), done:false}); if (a.interests) p.interests = a.interests; if (a.family) p.family = a.family; }
     if (S.examples){ for (const [id,x] of S.people) if (x.example) S.people.delete(id); }
     savePerson(p);
-    if (f.dataset.mode === "another"){ toast(first(name) + " added"); addSheet(); render(); }
+    if (f.dataset.mode === "another"){ toast(first(name) + " added"); render(); addSheet(addDraft.circle); }
     else { afterAddSheet(p); render(); }
     return;
   }
@@ -911,7 +967,7 @@ document.addEventListener("submit", e => {
   } else if (kind === "date"){
     (p.dates ||= []).push({id:uid("d"), label:v("dt-label"), date:v("dt-date"), yearly: $("#dt-yearly").checked}); savePerson(p); S.ui.open = null; render();
   } else if (kind === "edit"){
-    Object.assign(p, { name:v("ed-name")||p.name, note:v("ed-note"), howMet:v("ed-how"), relationship:v("ed-rel"), family:v("ed-family"), job:v("ed-job"), interests:v("ed-int"), faith:v("ed-faith"), phone:v("ed-phone"), email:v("ed-email") });
+    Object.assign(p, { name:v("ed-name")||p.name, note:v("ed-note"), howMet:v("ed-how"), relationship:v("ed-rel"), family:v("ed-family"), job:v("ed-job"), interests:v("ed-int"), faith: $("#ed-faith") ? v("ed-faith") : p.faith, phone:v("ed-phone"), email:v("ed-email") });
     savePerson(p); S.ui.open = null; toast("Saved"); render();
   } else if (kind === "gtask"){
     const pid = v("gt-person"); const tm = v("gt-time"); const t = {id:uid("t"), title:v("gt-title"), due:v("gt-due") || (tm ? today() : null), remindAt: tm || null, done:false}; remindNote(tm, t.due);
