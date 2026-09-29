@@ -434,6 +434,7 @@ function viewToday(){
           <div class="grow"><div class="kind">${esc(s.kind)}</div><div class="title">${esc(s.title)}</div>${s.person ? `<div class="small">${nameLink(s.person)}</div>`:""}</div>
         </div>`).join("")}</div>` : `<div class="empty">Nothing pressing today. Pray for your Focus 5 and enjoy the people God put around you.</div>`}</div>
     </section>`}
+    ${viewWeek()}
     <section>
       <div class="section-head"><h2>Pray today</h2><button class="linkbtn" data-tab-go="prayer">Prayer list</button></div>
       ${focus.length ? `<div class="pray-list">${focus.map(p => prayRow(p)).join("")}</div>` : `<div class="card empty">Star up to 5 people to pray for them here each day.</div>`}
@@ -448,6 +449,45 @@ function viewToday(){
     </section>
     ${storageNote()}
   </div>`;
+}
+/* Week ahead: the next 7 days at a glance */
+function weekAhead(){
+  const t = today(); const days = [0,1,2,3,4,5,6].map(i => addDays(t, i)); const end = days[6];
+  const ppl = people(); const byId = new Map(ppl.map(p => [p.id, p]));
+  const items = {}; days.forEach(d => items[d] = []);
+  allTasks().filter(x => !x.done && x.due && x.due >= t && x.due <= end).forEach(x =>
+    items[x.due].push({ kind:"task", sort:"1" + (x.remindAt || "99"), title:x.title, sub:x.remindAt ? fmtTime(x.remindAt) : "", person: x.personId ? byId.get(x.personId) : null, task:x }));
+  ppl.forEach(p => (p.dates||[]).forEach(d => { const n = nextDateOf(d); if (n && items[n]) items[n].push({ kind:"moment", sort:"0", title:d.label, person:p }); }));
+  focusPeople().forEach(p => { const l = lastContact(p); const due = l ? addDays(l, 14) : null;
+    if (due && due > t && items[due]) items[due].push({ kind:"checkin", sort:"2", title:"Check in with " + first(p.name), sub:"Two weeks since you last connected", person:p }); });
+  days.forEach(d => items[d].sort((a,b) => a.sort.localeCompare(b.sort)));
+  return { days, items };
+}
+function viewWeek(){
+  const t = today(); const { days, items } = weekAhead();
+  const sel = days.includes(S.ui.weekDay) ? S.ui.weekDay : null;
+  const total = days.reduce((n, d) => n + items[d].length, 0);
+  const dayLabel = d => d === t ? "Today" : daysBetween(t, d) === 1 ? "Tomorrow" : new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday:"long" });
+  const dotCls = i => i.kind === "moment" ? "m" : isFam(i.person) ? "f" : "";
+  const strip = days.map(d => `<button class="wday${d===t?" today":""}" data-wday="${d}" aria-pressed="${sel===d}" aria-label="${esc(dayLabel(d))}, ${items[d].length} planned">
+      <span class="wd">${d===t ? "Today" : esc(new Date(d+"T12:00:00").toLocaleDateString(undefined,{weekday:"short"}))}</span>
+      <span class="dn">${+d.slice(8)}</span>
+      <span class="dots">${items[d].slice(0,3).map(i => `<i class="${dotCls(i)}"></i>`).join("")}</span></button>`).join("");
+  const row = i => {
+    const icon = i.task ? `<button class="check" data-toggle-task="${esc(i.task.id)}" data-pid="${esc(i.task.personId||"")}" aria-label="Mark done"></button>`
+      : i.kind === "moment" ? `<span class="wk-ic">◆</span>` : `<span class="wk-ic wk-ci">↻</span>`;
+    const meta = [i.person ? nameLink(i.person) : "", i.sub ? esc(i.sub) : ""].filter(Boolean).join(" · ");
+    return `<div class="wk-row">${icon}<div class="grow"><div>${esc(i.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ""}</div></div>`;
+  };
+  const block = d => `<div class="wk-day">${esc(dayLabel(d))} <span>${esc(fmtDate(d))}</span></div>${items[d].map(row).join("")}`;
+  let body;
+  if (sel) body = items[sel].length ? block(sel) : `<div class="wk-day">${esc(dayLabel(sel))} <span>${esc(fmtDate(sel))}</span></div><div class="empty" style="padding:10px 0">Nothing planned yet.<div style="margin-top:8px"><button class="btn small ghost" data-act="plan-day" data-day="${sel}">Plan a step for ${esc(dayLabel(sel).toLowerCase() === "today" ? "today" : dayLabel(sel))}</button></div></div>`;
+  else body = total ? days.filter(d => items[d].length).map(block).join("") : `<div class="empty" style="padding:10px 0">Your week is wide open. Who could you reach out to?<div style="margin-top:8px"><button class="btn small ghost" data-act="plan-day" data-day="${addDays(t,1)}">Plan a step</button></div></div>`;
+  return `<section>
+      <div class="section-head"><h2>Week ahead</h2><span class="small muted">${sel ? `<button class="linkbtn" data-wday="${sel}">Show whole week</button>` : total + " planned"}</span></div>
+      <div class="week" role="group" aria-label="Next 7 days">${strip}</div>
+      <div class="card wk-list">${body}</div>
+    </section>`;
 }
 function prayRow(p){
   const needs = (p.prayers||[]).filter(r => !r.answeredAt).map(r => r.text).join(" · ");
@@ -726,7 +766,7 @@ function viewTasks(){
     ${exampleBanner()}
     ${S.ui.open==="gtask" ? `<form class="card stack" data-form="gtask"><label class="f">Task<input class="t" id="gt-title" required placeholder="e.g. Buy a Bible for Dana"></label>
       <label class="f">For<select class="t" id="gt-person"><option value="">No one in particular</option>${people().map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label>
-      <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" id="gt-due" type="date"></label><label class="f grow">Remind me at<input class="t" id="gt-time" type="time"></label></div>
+      <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" id="gt-due" type="date" value="${esc(S.ui.gtDue||"")}"></label><label class="f grow">Remind me at<input class="t" id="gt-time" type="time"></label></div>
       <span class="hint">Leave the time blank if you don't want a phone reminder.</span>
       <div class="row"><button class="btn small">Add</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div></form>` : `<div><button class="btn small" data-act="open-gtask">Add a task</button></div>`}
     ${groups.filter(g=>g[1].length).map(([name, list]) => `<section><div class="section-head"><h2>${name}</h2></div>
@@ -849,6 +889,7 @@ document.addEventListener("click", async e => {
   if (d.doneTask){ toggleTask(d.pid || null, d.doneTask); return; }
   if (d.toggleTask){ const pid = d.pid !== undefined ? (d.pid || null) : S.ui.personId; toggleTask(pid, d.toggleTask); return; }
   if (d.hist){ S.ui.hist = d.hist; render(); return; }
+  if (d.wday){ S.ui.weekDay = S.ui.weekDay === d.wday ? null : d.wday; render(); return; }
   if (d.quicklog){ const p = cur(); if (!p) return; const entry = { id:uid("l"), at:today(), type:d.quicklog, shared:"", cares:"", questions:"" }; (p.logs ||= []).push(entry); savePerson(p); render(); toast(({ "Call":"Called", "Text":"Texted", "In person":"Saw" }[d.quicklog] || "Logged") + " " + first(p.name) + " today. Tap Add a note below to add details."); return; }
   if (d.noteLog){ noteSheet(d.noteLog); return; }
   if (d.editLog){ editLogSheet(d.editLog); return; }
@@ -876,7 +917,8 @@ document.addEventListener("click", async e => {
     case "open-prayer": S.ui.open = "prayer"; render(); $("#pr-text")?.focus(); break;
     case "open-date": S.ui.open = "date"; render(); $("#dt-label")?.focus(); break;
     case "open-edit": S.ui.open = "edit"; render(); break;
-    case "open-gtask": S.ui.open = "gtask"; render(); $("#gt-title")?.focus(); break;
+    case "open-gtask": S.ui.gtDue = null; S.ui.open = "gtask"; render(); $("#gt-title")?.focus(); break;
+    case "plan-day": { const day = d.day; go("tasks"); S.ui.gtDue = day; S.ui.open = "gtask"; render(); $("#gt-title")?.focus(); break; }
     case "delete": S.ui.open = "delete"; render(); break;
     case "delete-yes": { const p = cur(); deletePerson(p.id); S.ui.personId = null; S.ui.open = null; toast(p.name + " removed"); render(); break; }
     case "focus": { const p = cur(); if (!p.focus && focusPeople().length >= 5){ toast("Focus 5 is full. Unstar someone first."); break; } p.focus = !p.focus; savePerson(p); render(); break; }
