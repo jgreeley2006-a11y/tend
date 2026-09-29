@@ -496,6 +496,20 @@ function editLogSheet(logId, confirmDelete){
     <div class="row wrap"><button class="btn">Save</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button><button type="button" class="linkbtn danger" data-act="ldel-ask" style="margin-left:auto">Delete entry</button></div>
   </form>`);
 }
+function editPrayerSheet(pid, id, confirmDelete){
+  const q = S.people.get(pid); const r = (q?.prayers||[]).find(x => x.id === id); if (!r) return;
+  S.editPrayer = { pid, id };
+  openSheet(`<form class="stack" data-form="predit">
+    <h2>Edit prayer need</h2>
+    <p class="small muted" style="margin:0">For ${esc(q.name)}</p>
+    <label class="f">Prayer need<textarea class="t" id="pe-text" required>${esc(r.text)}</textarea></label>
+    <label class="f">Praying since<input class="t" id="pe-at" type="date" value="${esc(r.at||"")}"></label>
+    <label class="row small" style="gap:8px"><input type="checkbox" id="pe-answered" ${r.answeredAt ? "checked" : ""}> God answered this</label>
+    <label class="f">Answered on<input class="t" id="pe-ans" type="date" value="${esc(r.answeredAt || today())}"></label>
+    ${confirmDelete ? `<div class="card stack"><div>Delete this prayer need? This can't be undone.</div><div class="row"><button type="button" class="btn small" style="background:var(--warn)" data-act="pdel-yes">Delete</button><button type="button" class="btn small ghost" data-act="pdel-no">Keep it</button></div></div>` : ""}
+    <div class="row wrap"><button class="btn">Save</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button><button type="button" class="linkbtn danger" data-act="pdel-ask" style="margin-left:auto">Delete</button></div>
+  </form>`);
+}
 function noteSheet(logId){
   const p = cur(); const l = (p?.logs||[]).find(x => x.id === logId); if (!l) return;
   S.noteLog = logId;
@@ -569,8 +583,8 @@ function viewPerson(p){
     <section class="stack">
       <div class="section-head"><h2>Prayer</h2><button class="linkbtn" data-act="open-prayer">Add need</button></div>
       ${o==="prayer" ? `<form class="card stack" data-form="prayer"><label class="f">Prayer need<input class="t" id="pr-text" required placeholder="e.g. His dad's surgery on the 14th"></label><div class="row"><button class="btn small">Add</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div></form>` : ""}
-      ${openPrayers.length || answered.length ? `<ul class="plain-list">${openPrayers.map(r=>`<li><span class="star">♡</span><div class="grow">${esc(r.text)}<div class="meta">Since ${esc(fmtDate(r.at))}</div></div><button class="pill-btn" data-answer="${esc(r.id)}">Answered</button></li>`).join("")}
-        ${answered.map(r=>`<li><span class="star">✓</span><div class="grow">${esc(r.text)}<div class="meta">Answered ${esc(fmtDate(r.answeredAt))}</div></div></li>`).join("")}</ul>` : `<p class="small muted">No prayer needs yet.</p>`}
+      ${openPrayers.length || answered.length ? `<ul class="plain-list">${openPrayers.map(r=>`<li><span class="star">♡</span><div class="grow">${esc(r.text)}<div class="meta">Since ${esc(fmtDate(r.at))}</div></div><button class="linkbtn tl-edit" data-edit-prayer="${esc(r.id)}" data-pid="${esc(p.id)}">Edit</button><button class="pill-btn" data-answer="${esc(r.id)}">Answered</button></li>`).join("")}
+        ${answered.map(r=>`<li><span class="star">✓</span><div class="grow">${esc(r.text)}<div class="meta">Answered ${esc(fmtDate(r.answeredAt))}</div></div><button class="linkbtn tl-edit" data-edit-prayer="${esc(r.id)}" data-pid="${esc(p.id)}">Edit</button></li>`).join("")}</ul>` : `<p class="small muted">No prayer needs yet.</p>`}
     </section>
 
     <section class="stack">
@@ -653,7 +667,7 @@ function viewPrayer(){
     <section><div class="section-head"><h2>Also praying for</h2></div>
       ${others.length ? `<div class="pray-list">${others.map(prayRow).join("")}</div>` : `<p class="small muted">Prayer needs for everyone else show up here.</p>`}</section>
     <section><div class="section-head"><h2>Answered</h2></div>
-      ${answered.length ? `<ul class="plain-list card">${answered.map(({p,r})=>`<li><span class="star">✓</span><div class="grow">${esc(r.text)}<div class="meta">${nameLink(p)} · ${esc(fmtDate(r.answeredAt))}</div></div></li>`).join("")}</ul>` : `<p class="small muted">When God answers, mark it. This list becomes your encouragement.</p>`}</section>
+      ${answered.length ? `<ul class="plain-list card">${answered.map(({p,r})=>`<li><span class="star">✓</span><div class="grow">${esc(r.text)}<div class="meta">${nameLink(p)} · ${esc(fmtDate(r.answeredAt))}</div></div><button class="linkbtn tl-edit" data-edit-prayer="${esc(r.id)}" data-pid="${esc(p.id)}">Edit</button></li>`).join("")}</ul>` : `<p class="small muted">When God answers, mark it. This list becomes your encouragement.</p>`}</section>
   </div>`;
 }
 
@@ -788,6 +802,7 @@ document.addEventListener("click", async e => {
   if (d.quicklog){ const p = cur(); if (!p) return; const entry = { id:uid("l"), at:today(), type:d.quicklog, shared:"", cares:"", questions:"" }; (p.logs ||= []).push(entry); savePerson(p); render(); toast(({ "Call":"Called", "Text":"Texted", "In person":"Saw" }[d.quicklog] || "Logged") + " " + first(p.name) + " today. Tap Add a note below to add details."); return; }
   if (d.noteLog){ noteSheet(d.noteLog); return; }
   if (d.editLog){ editLogSheet(d.editLog); return; }
+  if (d.editPrayer){ editPrayerSheet(d.pid, d.editPrayer); return; }
   if (d.editTask){ editTaskSheet(d.pid || null, d.editTask); return; }
   if (d.delTask){ const p = cur(); p.tasks = p.tasks.filter(t=>t.id!==d.delTask); savePerson(p); render(); return; }
   if (d.delDate){ const p = cur(); p.dates = p.dates.filter(t=>t.id!==d.delDate); savePerson(p); render(); return; }
@@ -840,6 +855,9 @@ document.addEventListener("click", async e => {
       if (await enableNotifications()){ toast("Notifications on. You'll get reminders at the times you set."); el.textContent = "On ✓"; render(); } else el.disabled = false;
       break; }
     case "nudge-off": S.meta.nudgeOff = true; saveMeta(); render(); break;
+    case "pdel-ask": if (S.editPrayer) editPrayerSheet(S.editPrayer.pid, S.editPrayer.id, true); break;
+    case "pdel-no": if (S.editPrayer) editPrayerSheet(S.editPrayer.pid, S.editPrayer.id, false); break;
+    case "pdel-yes": { const ep = S.editPrayer; const q = ep && S.people.get(ep.pid); if (q){ q.prayers = (q.prayers||[]).filter(x => x.id !== ep.id); savePerson(q); } S.editPrayer = null; closeSheet(); toast("Prayer need deleted"); render(); break; }
     case "ldel-ask": if (S.editLog) editLogSheet(S.editLog, true); break;
     case "ldel-no": if (S.editLog) editLogSheet(S.editLog, false); break;
     case "ldel-yes": { const p = cur(); if (p && S.editLog){ p.logs = (p.logs||[]).filter(x => x.id !== S.editLog); savePerson(p); } S.editLog = null; closeSheet(); toast("Entry deleted"); render(); break; }
@@ -899,6 +917,10 @@ document.addEventListener("submit", e => {
     const pid = v("gt-person"); const tm = v("gt-time"); const t = {id:uid("t"), title:v("gt-title"), due:v("gt-due") || (tm ? today() : null), remindAt: tm || null, done:false}; remindNote(tm, t.due);
     if (pid){ const q = S.people.get(pid); (q.tasks ||= []).push(t); savePerson(q); } else { S.meta.tasks.push(t); saveMeta(); }
     S.ui.open = null; render();
+  } else if (kind === "predit"){
+    const ep = S.editPrayer; const q = ep && S.people.get(ep.pid); const r = q && (q.prayers||[]).find(x => x.id === ep.id);
+    if (r){ r.text = v("pe-text") || r.text; r.at = v("pe-at") || r.at; r.answeredAt = $("#pe-answered").checked ? (v("pe-ans") || today()) : null; savePerson(q); }
+    S.editPrayer = null; closeSheet(); toast("Prayer need updated"); render();
   } else if (kind === "logedit"){
     const l = (p?.logs||[]).find(x => x.id === S.editLog);
     if (l){ l.type = v("le-type") || l.type; l.at = v("le-date") || l.at; l.shared = v("le-shared"); l.cares = v("le-cares"); l.questions = v("le-q"); savePerson(p); }
