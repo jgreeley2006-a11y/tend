@@ -249,3 +249,17 @@ body[data-circle="family"], .fam{ --accent:var(--fam); --accent-ink:var(--fam-in
 .wk-day + .wk-row{border-top:0}
 .wk-ic{width:20px;flex:none;text-align:center;color:var(--gold);margin-top:1px;font-size:13px}
 .wk-ic.wk-ci{color:var(--accent);font-size:15px}
+
+/* Meetups */
+.ic.cal{width:15px;height:15px;vertical-align:-2px;margin-right:5px;color:var(--gold);display:inline-block}
+.kind-toggle .ic.cal{margin-right:0;color:inherit}
+.iconbtn-sm{flex:none;width:34px;height:34px;display:grid;place-items:center;border:0;background:none;border-radius:10px;color:var(--ink-3);padding:0}
+.iconbtn-sm:hover{background:var(--surface-2);color:var(--warn)}
+.bring .t{flex:1}
+.rems{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:2px 6px 2px 12px}
+.rem{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line)}
+.rem:first-child{border-top:0}
+.rem.open{flex-direction:column;align-items:stretch;padding:10px 0}
+.rem-main{flex:1;text-align:left;background:none;border:0;padding:11px 0;font:inherit;color:var(--ink);cursor:pointer}
+.rem-main span:first-child{font-weight:600}
+.rem.past .rem-main{color:var(--ink-3)}

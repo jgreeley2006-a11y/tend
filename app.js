@@ -56,6 +56,43 @@ const first = n => (n||"").trim().split(/\s+/)[0] || n;
 const fmtTime = t => { const [h,m] = String(t).split(":").map(Number); return new Date(2000,0,1,h,m).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}); };
 function remindNote(tm, due){ if (!tm) return; if (!S.settings.notify) toast("Saved. Turn on Notifications (gear button) to get this reminder."); else toast("You'll get a reminder " + fmtDay(due) + " at " + fmtTime(tm) + "."); }
 
+/* ---------- meetups (a task with kind:"meetup"; reminders are sent by the send-reminders function) ---------- */
+const ICON_CAL = `<svg class="ic cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>`;
+const ICON_TRASH = `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>`;
+const REM_LABEL = { prep:"Prep", dayof:"Day of", followup:"Follow-up", custom:"Reminder" };
+const isMeetup = t => !!t && t.kind === "meetup";
+function meetupDefaults(){ return Object.assign({ prepTime:"20:00", morningTime:"07:00", followupHours:6 }, S.meta.meetupDefaults || {}); }
+// local date + "HH:MM" <-> Date
+const toDT = (date, time) => new Date(date + "T" + time + ":00");
+const fromDT = d => ({ date: dstr(d), time: pad(d.getHours()) + ":" + pad(d.getMinutes()) });
+const addMin = (d, n) => { const x = new Date(d); x.setMinutes(x.getMinutes() + n); return x; };
+const remKey = r => r.date + "T" + r.time;
+const sortRems = list => list.sort((a,b) => remKey(a).localeCompare(remKey(b)));
+// "20:00" -> "8:00pm"
+const clock = hhmm => { const [h, m] = String(hhmm).split(":").map(Number); return (h % 12 || 12) + ":" + pad(m) + (h < 12 ? "am" : "pm"); };
+function fmtRem(r){
+  const d = new Date(r.date + "T12:00:00"); const far = Math.abs(daysBetween(today(), r.date)) >= 7;
+  return d.toLocaleDateString(undefined, far ? { weekday:"short", month:"short", day:"numeric" } : { weekday:"short" }) + " " + clock(r.time);
+}
+// The standard three. Anything already in the past is skipped.
+function defaultReminders(due, time, now = new Date()){
+  const md = meetupDefaults(); const start = toDT(due, time);
+  const morning = toDT(due, md.morningTime); const before = addMin(start, -90);
+  const out = [
+    { type:"prep", ...fromDT(toDT(addDays(due, -1), md.prepTime)) },
+    { type:"dayof", ...fromDT(morning < before ? morning : before) },
+    { type:"followup", ...fromDT(addMin(start, Math.round((+md.followupHours || 6) * 60))) }
+  ];
+  return sortRems(out.filter(r => toDT(r.date, r.time) > now).map(r => ({ id: uid("rm"), ...r })));
+}
+// Move every reminder by the same amount the meetup moved; drop any that land in the past.
+function shiftReminders(list, from, to, now = new Date()){
+  const delta = (toDT(to.due, to.time) - toDT(from.due, from.time)) / 60000;
+  return sortRems((list || []).map(r => ({ ...r, ...fromDT(addMin(toDT(r.date, r.time), delta)) })).filter(r => toDT(r.date, r.time) > now));
+}
+const taskTitle = t => (isMeetup(t) ? ICON_CAL : "") + esc(t.title);
+const meetupWhen = t =>(t.time ? fmtTime(t.time) : "") + (t.location ? (t.time ? " · " : "") + t.location : "");
+
 /* ---------- state ---------- */
 const S = {
   people: new Map(),       // id -> person
@@ -289,6 +326,12 @@ function settingsSheet(){
   openSheet(`<div class="stack-lg">
     <h2>Settings</h2>
     <section class="stack"><h3>Notifications</h3>${notif}</section>
+    <section class="stack"><h3>Meetup reminders</h3><p class="small muted" style="margin:0">Used for new meetups and when you tap Restore defaults. Meetups you've already planned keep their reminders.</p>
+      <div>
+        <div class="setting"><div class="grow"><div>Prep</div><div class="small muted">The night before</div></div><input class="t" type="time" id="set-prep" value="${esc(meetupDefaults().prepTime)}" style="width:auto"></div>
+        <div class="setting"><div class="grow"><div>Day of</div><div class="small muted">At this time, or 90 minutes before if that's earlier</div></div><input class="t" type="time" id="set-morning" value="${esc(meetupDefaults().morningTime)}" style="width:auto"></div>
+        <div class="setting"><div class="grow"><div>Follow-up</div><div class="small muted">Hours after the meetup starts</div></div><input class="t" type="number" inputmode="numeric" min="1" max="48" step="1" id="set-follow" value="${esc(meetupDefaults().followupHours)}" style="width:80px"></div>
+      </div></section>
     <section class="stack"><h3>Quiet mode</h3><p class="small muted" style="margin:0">Pause reminders for a day, a week, or until you turn it back on.</p><div><button class="btn small ghost" data-act="quiet">${isQuiet() ? "Quiet mode is on" : "Turn on quiet mode"}</button></div></section>
     <section class="stack"><h3>Your data</h3><p class="small muted" style="margin:0">Signed in as ${esc(USER?.email || "")}. Only you can see your list.</p>
       <div class="row wrap"><button class="btn small ghost" data-act="export">Download a copy</button><button class="btn small ghost" data-act="signout">Sign out</button></div></section>
@@ -399,7 +442,8 @@ function todaySteps(){
   const ppl = people(); const byId = new Map(ppl.map(p => [p.id, p]));
   allTasks().filter(x => !x.done && x.due && x.due <= t).sort((a,b)=>a.due.localeCompare(b.due)).forEach(x => {
     const p = x.personId ? byId.get(x.personId) : null;
-    steps.push({ kind: x.due < t ? "Pick back up" : "Due today", title: x.title, person: p, task: x });
+    const kind = isMeetup(x) ? (x.due < t || (x.time && toDT(x.due, x.time) <= new Date()) ? "How did it go?" : "Meetup today · " + meetupWhen(x)) : x.due < t ? "Pick back up" : "Due today";
+    steps.push({ kind, title: x.title, person: p, task: x });
   });
   ppl.forEach(p => (p.dates||[]).forEach(d => { const n = nextDateOf(d); if (n){ const k = daysBetween(t, n); if (k >= 0 && k <= 7) steps.push({ kind: `${d.label} · ${fmtDay(n)}`, title: `Reach out to ${first(p.name)} before ${k===0?"the end of today":fmtDay(n)}`, person:p, moment:true }); } }));
   focusPeople().forEach(p => { const s = sinceContact(p); if (s === null || s >= 14) steps.push({ kind: s === null ? "No contact logged yet" : `Last contact ${s} days ago`, title: `Check in with ${first(p.name)}`, person:p, reconnect:true }); });
@@ -431,7 +475,7 @@ function viewToday(){
       <div class="card">${shown.length ? `<div class="steps">${shown.map((s,i) => `
         <div class="step">
           ${s.task ? `<button class="dot" aria-label="Mark done" data-done-task="${esc(s.task.id)}" data-pid="${esc(s.task.personId||"")}"></button>` : `<span class="dot" style="border-color:var(--gold)"></span>`}
-          <div class="grow"><div class="kind">${esc(s.kind)}</div><div class="title">${esc(s.title)}</div>${s.person ? `<div class="small">${nameLink(s.person)}</div>`:""}</div>
+          <div class="grow"><div class="kind">${esc(s.kind)}</div><div class="title">${s.task ? `<button class="tasktitle" data-edit-task="${esc(s.task.id)}" data-pid="${esc(s.task.personId||"")}">${taskTitle(s.task)}</button>` : esc(s.title)}</div>${s.person ? `<div class="small">${nameLink(s.person)}</div>`:""}</div>
         </div>`).join("")}</div>` : `<div class="empty">Nothing pressing today. Pray for your Focus 5 and enjoy the people God put around you.</div>`}</div>
     </section>`}
     ${viewWeek()}
@@ -456,7 +500,9 @@ function weekAhead(){
   const ppl = people(); const byId = new Map(ppl.map(p => [p.id, p]));
   const items = {}; days.forEach(d => items[d] = []);
   allTasks().filter(x => !x.done && x.due && x.due >= t && x.due <= end).forEach(x =>
-    items[x.due].push({ kind:"task", sort:"1" + (x.remindAt || "99"), title:x.title, sub:x.remindAt ? fmtTime(x.remindAt) : "", person: x.personId ? byId.get(x.personId) : null, task:x }));
+    items[x.due].push(isMeetup(x)
+      ? { kind:"task", sort:"1" + (x.time || "99"), title:x.title, sub:meetupWhen(x), person: x.personId ? byId.get(x.personId) : null, task:x }
+      : { kind:"task", sort:"1" + (x.remindAt || "99"), title:x.title, sub:x.remindAt ? fmtTime(x.remindAt) : "", person: x.personId ? byId.get(x.personId) : null, task:x }));
   ppl.forEach(p => (p.dates||[]).forEach(d => { const n = nextDateOf(d); if (n && items[n]) items[n].push({ kind:"moment", sort:"0", title:d.label, person:p }); }));
   focusPeople().forEach(p => { const l = lastContact(p); const due = l ? addDays(l, 14) : null;
     if (due && due > t && items[due]) items[due].push({ kind:"checkin", sort:"2", title:"Check in with " + first(p.name), sub:"Two weeks since you last connected", person:p }); });
@@ -477,7 +523,7 @@ function viewWeek(){
     const icon = i.task ? `<button class="check" data-toggle-task="${esc(i.task.id)}" data-pid="${esc(i.task.personId||"")}" aria-label="Mark done"></button>`
       : i.kind === "moment" ? `<span class="wk-ic">◆</span>` : `<span class="wk-ic wk-ci">↻</span>`;
     const meta = [i.person ? nameLink(i.person) : "", i.sub ? esc(i.sub) : ""].filter(Boolean).join(" · ");
-    return `<div class="wk-row">${icon}<div class="grow"><div>${esc(i.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ""}</div></div>`;
+    return `<div class="wk-row">${icon}<div class="grow"><div>${i.task ? `<button class="tasktitle" data-edit-task="${esc(i.task.id)}" data-pid="${esc(i.task.personId||"")}">${taskTitle(i.task)}</button>` : esc(i.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ""}</div></div>`;
   };
   const block = d => `<div class="wk-day">${esc(dayLabel(d))} <span>${esc(fmtDate(d))}</span></div>${items[d].map(row).join("")}`;
   let body;
@@ -534,7 +580,8 @@ function lastContactLabel(p){ let l = null; (p.logs||[]).forEach(x => { if (!l |
 function comingUp(p){
   const t = today(); const items = [];
   (p.tasks||[]).filter(x => !x.done && x.due).forEach(x => items.push(x.due < t
-    ? { sort:"0" + x.due, text:x.title, sub:"Overdue, was " + fmtDay(x.due), overdue:true }
+    ? { sort:"0" + x.due, text:x.title, meetup:isMeetup(x), sub: isMeetup(x) ? "How did it go? Was " + fmtDay(x.due) : "Overdue, was " + fmtDay(x.due), overdue:!isMeetup(x) }
+    : isMeetup(x) ? { sort:x.due + (x.time || "99"), text:x.title, meetup:true, sub:fmtDay(x.due) + (x.time ? " · " + fmtTime(x.time) : "") }
     : { sort:x.due + (x.remindAt || "99"), text:x.title, sub:fmtDay(x.due) + (x.remindAt ? " · " + fmtTime(x.remindAt) : "") }));
   (p.dates||[]).forEach(d => { const n = nextDateOf(d); if (n){ const k = daysBetween(t, n); if (k >= 0 && k <= 30) items.push({ sort:n + "00", text:d.label, sub:fmtDay(n) }); } });
   return items.sort((a,b) => a.sort.localeCompare(b.sort)).slice(0, 4);
@@ -545,11 +592,12 @@ function historyView(p){
   const items = [];
   (p.logs||[]).forEach((l, n) => items.push({ sort:l.at + "1" + String(n).padStart(5, "0"), kind:l.type, log:l }));
   (p.tasks||[]).filter(t => t.done && t.doneAt).forEach(t => items.push({ sort:t.doneAt + "0", kind:"__task", task:t }));
+  const doneLabel = t => isMeetup(t) ? "Meetup" : "Task done";
   const g = groups[f] || null;
   const list = items.filter(i => !g || g.includes(i.kind)).sort((a,b) => b.sort.localeCompare(a.sort));
   const chips = Object.keys(groups).map(k => `<button class="chip" data-hist="${esc(k)}" aria-pressed="${k===f}">${esc(k)}</button>`).join("");
   const row = i => i.task
-    ? `<div class="tl done-task"><div class="when row spread"><span>${esc(fmtDate(i.task.doneAt))} · Task done</span><button class="linkbtn tl-edit" data-edit-task="${esc(i.task.id)}" data-pid="${esc(p.id)}">Edit</button></div><p>${esc(i.task.title)}</p></div>`
+    ? `<div class="tl done-task"><div class="when row spread"><span>${esc(fmtDate(i.task.doneAt))} · ${doneLabel(i.task)}</span><button class="linkbtn tl-edit" data-edit-task="${esc(i.task.id)}" data-pid="${esc(p.id)}">Edit</button></div><p>${esc(i.task.title)}</p></div>`
     : `<div class="tl"><div class="when row spread"><span>${esc(fmtDate(i.log.at))} · ${esc(LOG_VERB[i.log.type] || i.log.type)}</span>${i.log.id ? `<button class="linkbtn tl-edit" data-edit-log="${esc(i.log.id)}">Edit</button>` : ""}</div>${i.log.shared?`<p>${esc(i.log.shared)}</p>`:""}${i.log.cares?`<p><span class="lbl">Cares about:</span> ${esc(i.log.cares)}</p>`:""}${i.log.questions?`<p><span class="lbl">Asked:</span> ${esc(i.log.questions)}</p>`:""}${!i.log.shared && !i.log.cares && !i.log.questions && i.log.id ? `<button class="linkbtn" data-edit-log="${esc(i.log.id)}">Add a note</button>` : ""}</div>`;
   return `<div class="chips" role="group" aria-label="Filter history">${chips}</div>` + (list.length
     ? `<div class="timeline">${list.map(row).join("")}</div>`
@@ -623,7 +671,7 @@ function viewPerson(p){
         <dt>Last call</dt><dd>${esc(agoFull(lastOf(p, ["Call"])))}</dd>
         <dt>Last text</dt><dd>${esc(agoFull(lastOf(p, ["Text"])))}</dd>
         <dt>In person</dt><dd>${esc(agoFull(lastOf(p, IN_PERSON)))}</dd>
-        <dt>Coming up</dt><dd>${up.length ? up.map(i => `<div class="${i.overdue ? "danger" : ""}">${esc(i.text)} <span class="meta">· ${esc(i.sub)}</span></div>`).join("") : "Nothing scheduled"}</dd>
+        <dt>Coming up</dt><dd>${up.length ? up.map(i => `<div class="${i.overdue ? "danger" : ""}">${i.meetup ? ICON_CAL : ""}${esc(i.text)} <span class="meta">· ${esc(i.sub)}</span></div>`).join("") : "Nothing scheduled"}</dd>
       </dl>
       <div class="row wrap quicklog"><span class="small muted">Just reached out?</span><button class="pill-btn" data-quicklog="Call">Called</button><button class="pill-btn" data-quicklog="Text">Texted</button><button class="pill-btn" data-quicklog="In person">Saw them</button></div>
     </section>
@@ -648,10 +696,9 @@ function viewPerson(p){
     </section>
 
     <section class="stack">
-      <div class="section-head"><h2>Next steps</h2><button class="linkbtn" data-act="open-task">Add</button></div>
-      ${o==="task" ? taskForm(p) : ""}
+      <div class="section-head"><h2>Next steps</h2><div class="row"><button class="linkbtn" data-act="open-meetup">Plan a meetup</button><button class="linkbtn" data-act="open-task">Add</button></div></div>
       <div class="chips wrap">${(isFam(p) ? NEXT_BY_DEPTH[depthOf(p)] : NEXT_BY_STAGE[p.stage||0]).map(x=>`<button class="chip" data-suggest="${esc(x)}">+ ${esc(x)}</button>`).join("")}</div>
-      ${tasks.length ? `<ul class="plain-list">${tasks.map(t=>`<li><button class="check ${t.done?"on":""}" data-toggle-task="${esc(t.id)}" aria-label="${t.done?"Mark not done":"Mark done"}">${t.done?"✓":""}</button><div class="grow"><button class="tasktitle ${t.done?"strike":""}" data-edit-task="${esc(t.id)}" data-pid="${esc(p.id)}">${esc(t.title)}</button>${t.due?`<div class="meta">${t.done?"Done":"Due "+esc(fmtDay(t.due))+(t.remindAt?" · Reminder "+esc(fmtTime(t.remindAt)):"")}</div>`:""}</div><button class="linkbtn muted" data-del-task="${esc(t.id)}" aria-label="Remove">✕</button></li>`).join("")}</ul>` : ""}
+      ${tasks.length ? `<ul class="plain-list">${tasks.map(t=>`<li><button class="check ${t.done?"on":""}" data-toggle-task="${esc(t.id)}" aria-label="${t.done?"Mark not done":"Mark done"}">${t.done?"✓":""}</button><div class="grow"><button class="tasktitle ${t.done?"strike":""}" data-edit-task="${esc(t.id)}" data-pid="${esc(p.id)}">${taskTitle(t)}</button>${t.due?`<div class="meta">${t.done?"Done":isMeetup(t)?esc(fmtDay(t.due)+" · "+meetupWhen(t)):"Due "+esc(fmtDay(t.due))+(t.remindAt?" · Reminder "+esc(fmtTime(t.remindAt)):"")}</div>`:""}</div><button class="linkbtn muted" data-del-task="${esc(t.id)}" aria-label="Remove">✕</button></li>`).join("")}</ul>` : ""}
     </section>
 
     <section class="stack">
@@ -698,19 +745,13 @@ function suggestQuestion(p, last, openPrayers){
 function logForm(p){
   return `<form class="card stack" data-form="log">
     <div class="chips wrap" role="group" aria-label="Type">${LOG_TYPES.map((x,i)=>`<button type="button" class="chip" data-logtype="${esc(x)}" aria-pressed="${i===0}">${esc(x)}</button>`).join("")}</div>
-    <label class="f">Date<input class="t" id="lg-date" type="date" value="${today()}"></label>
+    <label class="f">Date<input class="t" id="lg-date" type="date" value="${esc(S.ui.logDate || today())}"></label>
     <label class="f">What did ${esc(first(p.name))} share?<textarea class="t" id="lg-shared" placeholder="Their words, their news, what's on their heart"></textarea></label>
     <label class="f">What do they care about?<input class="t" id="lg-cares" placeholder="e.g. Being a good dad"></label>
     <label class="f">Questions they asked<input class="t" id="lg-q" placeholder="e.g. Why do you pray before meals?"></label>
     <label class="f">Prayer need (optional)<input class="t" id="lg-prayer" placeholder="Adds to their prayer list"></label>
     <div class="row"><button class="btn small">Save</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div>
   </form>`;
-}
-function taskForm(p){
-  return `<form class="card stack" data-form="task"><label class="f">Next step<input class="t" id="tk-title" required placeholder="e.g. Text Marcus about the game"></label>
-    <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" id="tk-due" type="date" value="${addDays(today(),3)}"></label><label class="f grow">Remind me at<input class="t" id="tk-time" type="time"></label></div>
-    <span class="hint">Leave the time blank if you don't want a phone reminder.</span>
-    <div class="row"><button class="btn small">Add</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div></form>`;
 }
 function editForm(p){
   const f = (id,label,val,ph="") => `<label class="f">${label}<input class="t" id="${id}" value="${esc(val||"")}" placeholder="${esc(ph)}"></label>`;
@@ -756,7 +797,7 @@ function viewTasks(){
   const groups = [
     ["Pick back up", open.filter(x=>x.due && x.due<t)],
     ["Today", open.filter(x=>x.due===t)],
-    ["Coming up", open.filter(x=>x.due && x.due>t).sort((a,b)=>a.due.localeCompare(b.due))],
+    ["Coming up", open.filter(x=>x.due && x.due>t).sort((a,b)=>a.due.localeCompare(b.due) || (a.time||a.remindAt||"99").localeCompare(b.time||b.remindAt||"99"))],
     ["Anytime", open.filter(x=>!x.due)]
   ];
   const doneRecent = allTasks().filter(x=>x.done && x.doneAt && x.doneAt>=addDays(t,-7));
@@ -764,14 +805,10 @@ function viewTasks(){
   <div class="top"><div><div class="date">${open.length} open</div><h1>Tasks</h1></div></div>
   <div class="stack-lg">
     ${exampleBanner()}
-    ${S.ui.open==="gtask" ? `<form class="card stack" data-form="gtask"><label class="f">Task<input class="t" id="gt-title" required placeholder="e.g. Buy a Bible for Dana"></label>
-      <label class="f">For<select class="t" id="gt-person"><option value="">No one in particular</option>${people().map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label>
-      <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" id="gt-due" type="date" value="${esc(S.ui.gtDue||"")}"></label><label class="f grow">Remind me at<input class="t" id="gt-time" type="time"></label></div>
-      <span class="hint">Leave the time blank if you don't want a phone reminder.</span>
-      <div class="row"><button class="btn small">Add</button><button type="button" class="btn small ghost" data-act="close">Cancel</button></div></form>` : `<div><button class="btn small" data-act="open-gtask">Add a task</button></div>`}
+    <div class="row wrap"><button class="btn small" data-act="open-gtask">Add a task</button><button class="btn small ghost" data-act="open-gmeetup">${ICON_CAL} Plan a meetup</button></div>
     ${groups.filter(g=>g[1].length).map(([name, list]) => `<section><div class="section-head"><h2>${name}</h2></div>
-      <ul class="plain-list card">${list.map(x=>{ const p = x.personId?byId.get(x.personId):null; return `<li><button class="check" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark done"></button><div class="grow"><button class="tasktitle" data-edit-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}">${esc(x.title)}</button><div class="meta">${p?nameLink(p)+" · ":""}${x.due?esc(fmtDay(x.due)):"No date"}${x.remindAt?" · Reminder "+esc(fmtTime(x.remindAt)):""}</div></div></li>`; }).join("")}</ul></section>`).join("") || `<div class="card empty">No open tasks. Add a next step from anyone's page.</div>`}
-    ${doneRecent.length ? `<section><div class="section-head"><h2>Done this week</h2></div><ul class="plain-list">${doneRecent.map(x=>`<li><button class="check on" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark not done">✓</button><div class="grow strike">${esc(x.title)}</div></li>`).join("")}</ul></section>`:""}
+      <ul class="plain-list card">${list.map(x=>{ const p = x.personId?byId.get(x.personId):null; return `<li><button class="check" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark done"></button><div class="grow"><button class="tasktitle" data-edit-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}">${taskTitle(x)}</button><div class="meta">${p?nameLink(p)+" · ":""}${x.due?esc(fmtDay(x.due)):"No date"}${isMeetup(x)?(x.time||x.location?" · "+esc(meetupWhen(x)):""):x.remindAt?" · Reminder "+esc(fmtTime(x.remindAt)):""}</div></div></li>`; }).join("")}</ul></section>`).join("") || `<div class="card empty">No open tasks. Add a next step from anyone's page.</div>`}
+    ${doneRecent.length ? `<section><div class="section-head"><h2>Done this week</h2></div><ul class="plain-list">${doneRecent.map(x=>`<li><button class="check on" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark not done">✓</button><div class="grow strike">${taskTitle(x)}</div></li>`).join("")}</ul></section>`:""}
   </div>`;
 }
 
@@ -822,9 +859,123 @@ function afterAddSheet(p){
 }
 let editing = null;
 function taskRef(pid, id){ const list = pid ? (S.people.get(pid)?.tasks || []) : S.meta.tasks; return { list, t: list.find(x => x.id === id) }; }
-function editTaskSheet(pid, id, confirmDelete){
+/* Add sheet (Task / Meetup) and the meetup detail sheet share one draft. */
+let md = null;
+function addTaskSheet(o = {}){
+  const pid = o.pid || null;
+  md = { mode:"add", kind: o.kind || "task", fixedPid: !!pid, withPid: pid, title:"", due: o.due || (pid ? addDays(today(), 3) : ""), remindAt:"", time:"", location:"",
+    bringUp:[], reminders:[], touched:false, openRem:null, moved:null };
+  taskSheet();
+}
+function openMeetup(pid, id, convert){
   const { t } = taskRef(pid, id); if (!t) return;
   editing = { pid, id };
+  md = { mode: convert ? "convert" : "edit", kind:"meetup", fixedPid:false, pid, id, withPid: pid, title: t.title || "", due: t.due || "", time: convert ? "" : (t.time || ""),
+    location: t.location || "", bringUp: clone(t.bringUp || []), reminders: clone(t.reminders || []), done: !!t.done, touched:false, openRem:null, moved:null, movedAny:false };
+  taskSheet();
+  if (convert) setTimeout(() => $('[data-md="time"]')?.focus(), 60);
+}
+function taskSheet(){
+  const m = md; const meet = m.kind === "meetup"; const ppl = people();
+  const who = m.withPid ? S.people.get(m.withPid) : null;
+  const withSel = label => `<label class="f">${label}<select class="t" data-md="withPid"><option value="">No one in particular</option>${ppl.map(p => `<option value="${esc(p.id)}" ${p.id === m.withPid ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>`;
+  const head = m.mode === "add"
+    ? `<h2>Add</h2><div class="circles kind-toggle" role="radiogroup" aria-label="What are you adding">
+        <button type="button" role="radio" class="reach" data-tkind="task" aria-checked="${!meet}">Task</button>
+        <button type="button" role="radio" class="reach" data-tkind="meetup" aria-checked="${meet}">${ICON_CAL}Meetup</button></div>`
+    : `<h2>${m.mode === "convert" ? "Make this a meetup" : "Meetup"}</h2>${m.done ? `<p class="small muted" style="margin:0">Done. Reminders are off.</p>` : ""}`;
+  const taskFields = `
+    <label class="f">${m.fixedPid ? "Next step" : "Task"}<input class="t" data-md="title" data-autofocus required value="${esc(m.title)}" placeholder="${m.fixedPid && who ? `e.g. Text ${esc(first(who.name))} about the game` : "e.g. Buy a Bible for Dana"}"></label>
+    ${m.fixedPid ? "" : withSel("For")}
+    <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" data-md="due" type="date" value="${esc(m.due)}"></label><label class="f grow">Remind me at<input class="t" data-md="remindAt" type="time" value="${esc(m.remindAt)}"></label></div>
+    <span class="hint">Leave the time blank if you don't want a phone reminder.</span>`;
+  const meetFields = `
+    <label class="f">What<input class="t" data-md="title" ${m.mode === "add" ? "data-autofocus" : ""} required value="${esc(m.title)}" placeholder="${who ? `e.g. Coffee with ${esc(first(who.name))}` : "e.g. Coffee with Townsend"}"></label>
+    <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Date<input class="t" data-md="due" type="date" required value="${esc(m.due)}"></label><label class="f grow">Time<input class="t" data-md="time" type="time" required value="${esc(m.time)}"></label></div>
+    <label class="f">Where<input class="t" data-md="location" value="${esc(m.location)}" placeholder="Optional, e.g. Buddy Brew on Kennedy"></label>
+    ${withSel("With")}
+    <div class="stack" id="md-bring">${bringHtml()}</div>
+    <div class="stack" id="md-rem">${remsHtml()}</div>`;
+  const edit = m.mode === "edit";
+  openSheet(`<form class="stack" data-form="tsheet" autocomplete="off">
+    ${head}
+    ${meet ? meetFields : taskFields}
+    ${edit && !m.done && who ? `<div class="card row spread"><div><b>How did it go?</b><div class="small muted">Mark it done and log it in ${esc(first(who.name))}'s history.</div></div><button type="button" class="pill-btn" data-act="md-done">Log it</button></div>` : ""}
+    ${edit ? `<div class="card stack" id="md-del" hidden><div>Delete this meetup and its reminders? This can't be undone.</div><div class="row"><button type="button" class="btn small" style="background:var(--warn)" data-act="tdel-yes">Delete</button><button type="button" class="btn small ghost" data-act="md-del-no">Keep it</button></div></div>` : ""}
+    <div class="row wrap"><button class="btn">${m.mode === "add" ? "Add" : "Save"}</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button>${edit ? `<button type="button" class="linkbtn danger" data-act="md-del-ask" style="margin-left:auto">Delete meetup</button>` : ""}</div>
+  </form>`);
+}
+function bringHtml(){
+  return `<span class="f">Things to bring up</span>
+    ${md.bringUp.map(b => `<div class="row bring"><input class="t" data-bring="${esc(b.id)}" value="${esc(b.text)}" placeholder="e.g. Ask how his dad's surgery went"><button type="button" class="iconbtn-sm" data-bring-del="${esc(b.id)}" aria-label="Remove">${ICON_TRASH}</button></div>`).join("")}
+    <div><button type="button" class="linkbtn" data-act="bring-add">+ Add something to bring up</button></div>`;
+}
+function remsHtml(){
+  const m = md; const now = new Date(); const ready = m.due && m.time;
+  const row = r => {
+    const past = toDT(r.date, r.time) <= now;
+    if (m.openRem === r.id) return `<div class="rem open">
+      <div class="row wrap" style="gap:8px;align-items:flex-end"><label class="f grow">${esc(REM_LABEL[r.type] || "Reminder")} date<input class="t" type="date" data-rem-date="${esc(r.id)}" value="${esc(r.date)}"></label><label class="f grow">Time<input class="t" type="time" data-rem-time="${esc(r.id)}" value="${esc(r.time)}"></label></div>
+      <div class="row"><button type="button" class="btn small ghost" data-act="rem-close">Done</button><button type="button" class="iconbtn-sm" data-rem-del="${esc(r.id)}" aria-label="Delete reminder" style="margin-left:auto">${ICON_TRASH}</button></div></div>`;
+    return `<div class="rem${past ? " past" : ""}"><button type="button" class="rem-main" data-rem-open="${esc(r.id)}"><span>${esc(fmtRem(r))}</span> <span class="meta">· ${esc(REM_LABEL[r.type] || "Reminder")}${past ? (m.mode === "edit" ? " · sent" : " · already past") : ""}</span></button><button type="button" class="iconbtn-sm" data-rem-del="${esc(r.id)}" aria-label="Delete reminder">${ICON_TRASH}</button></div>`;
+  };
+  return `<div class="row spread"><span class="f">Reminders</span>${ready ? `<span class="hint">Tap one to change it</span>` : ""}</div>
+    ${!ready ? `<p class="small muted" style="margin:0">Pick a date and time and Tend will suggest reminders.</p>`
+      : m.reminders.length ? `<div class="rems">${m.reminders.map(row).join("")}</div>` : `<p class="small muted" style="margin:0">No reminders for this meetup.</p>`}
+    ${m.moved ? `<div class="banner info"><div class="grow"><div><b>Reminders moved with your meetup.</b> ${esc(m.moved)}</div></div></div>` : ""}
+    ${!S.settings.notify && ready && m.reminders.length ? `<span class="hint">Turn on Notifications (gear button) to get these on your phone.</span>` : ""}
+    ${ready ? `<div class="row wrap"><button type="button" class="linkbtn" data-act="rem-add">+ Add reminder</button><button type="button" class="linkbtn muted" data-act="rem-restore">Restore defaults</button></div>` : ""}`;
+}
+const renderRems = () => { const el = $("#md-rem"); if (el) el.innerHTML = remsHtml(); };
+const renderBring = () => { const el = $("#md-bring"); if (el) el.innerHTML = bringHtml(); };
+const movedText = list => list.length ? "New times: " + list.map(r => fmtRem(r) + " (" + (REM_LABEL[r.type] || "Reminder") + ")").join(", ") + "." : "The new time leaves no reminders ahead of it.";
+// date or time changed on a meetup draft
+function whenChanged(prev){
+  const m = md; m.moved = null;
+  if (m.due && m.time){
+    const had = prev.due && prev.time;
+    if (m.mode !== "edit" && !m.touched) m.reminders = defaultReminders(m.due, m.time);
+    else if (had){ m.reminders = shiftReminders(m.reminders, prev, m); m.moved = movedText(m.reminders); m.movedAny = true; }
+  }
+  renderRems();
+}
+function saveMeetup(){
+  const m = md; const owner = m.withPid || null;
+  let t;
+  if (m.id){
+    const ref = taskRef(m.pid, m.id); t = ref.t; if (!t){ closeSheet(); return; }
+    if ((m.pid || null) !== owner){
+      if (m.pid){ const q = S.people.get(m.pid); q.tasks = (q.tasks||[]).filter(x => x.id !== t.id); savePerson(q); } else { S.meta.tasks = S.meta.tasks.filter(x => x.id !== t.id); saveMeta(); }
+    }
+  } else t = { id: uid("t"), done:false, doneAt:null };
+  Object.assign(t, { kind:"meetup", title: m.title.trim(), due: m.due, time: m.time, location: m.location.trim(),
+    bringUp: m.bringUp.filter(b => b.text.trim()).map(b => ({ id:b.id, text:b.text.trim() })),
+    reminders: sortRems(m.reminders.map(({ id, type, date, time }) => ({ id, type, date, time }))) });
+  delete t.remindAt;
+  if (t.done === undefined) t.done = false;
+  const list = owner ? (S.people.get(owner).tasks ||= []) : S.meta.tasks;
+  if (!list.includes(t)) list.push(t);
+  if (owner) savePerson(S.people.get(owner)); else saveMeta();
+  const mode = m.mode, moved = m.movedAny;
+  md = null; editing = null; closeSheet(); render();
+  if (mode === "edit" && moved) toast("Reminders moved with your meetup. " + movedText(t.reminders), 6000);
+  else if (mode === "edit") toast("Meetup saved");
+  else if (!t.reminders.length) toast("Meetup added");
+  else toast(S.settings.notify ? "Meetup added. Reminders: " + t.reminders.map(fmtRem).join(", ") + "." : "Meetup added. Turn on Notifications (gear button) to get its reminders.", 4500);
+}
+// After a meetup is marked done: make it easy to log how it went.
+function afterMeetupDone(pid, t){
+  const p = pid ? S.people.get(pid) : null;
+  if (!p){ toast("Done. Well done."); return; }
+  S.meetLog = { pid, due: t.due };
+  openSheet(`<div class="stack"><h2>How did it go?</h2><p class="muted" style="margin:0">${esc(t.title)} · ${esc(fmtDay(t.due))}</p>
+    <p class="small muted" style="margin:0">Jot down what ${esc(first(p.name))} shared while it's fresh. It goes in their history.</p>
+    <div class="row wrap"><button class="btn" data-act="md-log">Log the conversation</button><button class="btn ghost" data-act="close-sheet">Later</button></div></div>`);
+}
+function editTaskSheet(pid, id, confirmDelete){
+  const { t } = taskRef(pid, id); if (!t) return;
+  if (isMeetup(t)){ openMeetup(pid, id); return; }
+  editing = { pid, id }; md = null;
   const who = pid ? S.people.get(pid) : null;
   openSheet(`<form class="stack" data-form="tedit">
     <h2>Edit task</h2>
@@ -832,6 +983,7 @@ function editTaskSheet(pid, id, confirmDelete){
     <label class="f">Task<input class="t" id="te-title" required value="${esc(t.title)}"></label>
     <div class="row wrap" style="gap:10px;align-items:flex-end"><label class="f grow">Day<input class="t" id="te-due" type="date" value="${esc(t.due||"")}"></label><label class="f grow">Remind me at<input class="t" id="te-time" type="time" value="${esc(t.remindAt||"")}"></label></div>
     <span class="hint">Clear the time to turn off the phone reminder.</span>
+    ${t.done ? "" : `<div><button type="button" class="linkbtn" data-act="to-meetup">${ICON_CAL} Make this a meetup</button></div>`}
     ${confirmDelete ? `<div class="card stack"><div>Delete this task? This can't be undone.</div><div class="row"><button type="button" class="btn small" style="background:var(--warn)" data-act="tdel-yes">Delete</button><button type="button" class="btn small ghost" data-act="tdel-no">Keep it</button></div></div>` : ""}
     <div class="row wrap"><button class="btn">Save</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button><button type="button" class="linkbtn danger" data-act="tdel-ask" style="margin-left:auto">Delete task</button></div>
   </form>`);
@@ -857,16 +1009,18 @@ function quietSheet(){
 }
 
 /* ---------- actions ---------- */
-function toast(msg){ const r = $("#toast-root"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toast.t); toast.t = setTimeout(()=>{ r.innerHTML=""; }, 2600); }
+function toast(msg, ms){ const r = $("#toast-root"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toast.t); toast.t = setTimeout(()=>{ r.innerHTML=""; }, ms || 2600); }
 function cur(){ return S.people.get(S.ui.personId); }
 function go(tab){ S.ui.tab = tab; S.ui.personId = null; S.ui.open = null; render(); window.scrollTo(0,0); }
 function openPerson(id){ S.ui.personId = id; S.ui.open = null; S.ui.hist = "All"; closeSheet(); render(); window.scrollTo(0,0); }
 function findTask(pid, tid){ const list = pid ? (S.people.get(pid)?.tasks||[]) : S.meta.tasks; return { list, t: list.find(x=>x.id===tid) }; }
 function toggleTask(pid, tid){
-  if (!pid){ const t = S.meta.tasks.find(x=>x.id===tid); if (!t) return; t.done=!t.done; t.doneAt=t.done?today():null; saveMeta(); }
-  else { const p = S.people.get(pid); const t = (p.tasks||[]).find(x=>x.id===tid); if (!t) return; t.done=!t.done; t.doneAt=t.done?today():null; savePerson(p); }
-  if (arguments[2] !== false) toast("Done. Well done.");
+  const { t } = findTask(pid, tid); if (!t) return;
+  t.done = !t.done; t.doneAt = t.done ? today() : null;
+  if (pid) savePerson(S.people.get(pid)); else saveMeta();
   render();
+  if (isMeetup(t) && t.done) afterMeetupDone(pid, t);
+  else if (arguments[2] !== false && t.done) toast("Done. Well done.");
 }
 function newPerson(name){
   if (S.meta.hideExamples === undefined) S.meta.hideExamples = false;
@@ -907,18 +1061,35 @@ document.addEventListener("click", async e => {
   if (d.quickStep){ const [title, n] = d.quickStep.split("|"); const p = S.people.get(S.lastAdded); if (p){ (p.tasks ||= []).push({id:uid("t"), title, due:addDays(today(),+n), done:false}); savePerson(p); toast("Next step added"); el.setAttribute("aria-pressed","true"); el.disabled = true; } return; }
   if (d.quiet){ S.meta.quietUntil = d.quiet === "on" ? "on" : addDays(today(), +d.quiet - 1); saveMeta(); closeSheet(); toast("Quiet mode on"); render(); return; }
   if (d.submit){ el.form.dataset.mode = d.submit; return; }
+  if (d.tkind && md){ md.kind = d.tkind; taskSheet(); return; }
+  if (d.bringDel && md){ md.bringUp = md.bringUp.filter(b => b.id !== d.bringDel); renderBring(); return; }
+  if (d.remOpen && md){ md.openRem = d.remOpen; renderRems(); $(`[data-rem-time="${d.remOpen}"]`)?.focus(); return; }
+  if (d.remDel && md){ md.reminders = md.reminders.filter(r => r.id !== d.remDel); md.touched = true; if (md.openRem === d.remDel) md.openRem = null; renderRems(); return; }
 
   switch (d.act){
     case "back": S.ui.personId = null; S.ui.open = null; render(); break;
     case "close": S.ui.open = null; render(); break;
     case "close-sheet": closeSheet(); render(); break;
-    case "open-log": S.ui.open = "log"; render(); $("#lg-shared")?.focus(); break;
-    case "open-task": S.ui.open = "task"; render(); $("#tk-title")?.focus(); break;
+    case "open-log": S.ui.open = "log"; S.ui.logDate = null; render(); $("#lg-shared")?.focus(); break;
+    case "open-task": addTaskSheet({ pid: cur()?.id }); break;
+    case "open-meetup": addTaskSheet({ pid: cur()?.id, kind:"meetup" }); break;
+    case "open-gmeetup": addTaskSheet({ kind:"meetup" }); break;
+    case "to-meetup": if (editing) openMeetup(editing.pid, editing.id, true); break;
+    case "md-done": { if (!md || !md.id) break; const { pid, id } = md; md = null; editing = null; closeSheet(); toggleTask(pid, id); break; }
+    case "md-log": { const ml = S.meetLog; closeSheet(); if (!ml) break; openPerson(ml.pid); S.ui.open = "log"; S.ui.logDate = ml.due && ml.due <= today() ? ml.due : today(); render(); $("#lg-shared")?.focus(); S.meetLog = null; break; }
+    case "md-del-ask": { const b = $("#md-del"); if (b){ b.hidden = false; b.scrollIntoView({ block:"nearest" }); } break; }
+    case "md-del-no": { const b = $("#md-del"); if (b) b.hidden = true; break; }
+    case "bring-add": { if (!md) break; md.bringUp.push({ id: uid("b"), text:"" }); renderBring(); const ins = document.querySelectorAll("[data-bring]"); ins[ins.length-1]?.focus(); break; }
+    case "rem-close": if (md){ md.openRem = null; sortRems(md.reminders); renderRems(); } break;
+    case "rem-restore": if (md && md.due && md.time){ md.reminders = defaultReminders(md.due, md.time); md.openRem = null; md.moved = null; md.touched = md.mode === "edit"; renderRems(); toast(md.reminders.length ? "Default reminders restored" : "All the default times have already passed"); } break;
+    case "rem-add": { if (!md || !md.due || !md.time) break;
+      const r = { id: uid("rm"), type:"custom", ...fromDT(addMin(toDT(md.due, md.time), -60)) };
+      md.reminders.push(r); md.openRem = r.id; md.touched = true; renderRems(); $(`[data-rem-time="${r.id}"]`)?.focus(); break; }
     case "open-prayer": S.ui.open = "prayer"; render(); $("#pr-text")?.focus(); break;
     case "open-date": S.ui.open = "date"; render(); $("#dt-label")?.focus(); break;
     case "open-edit": S.ui.open = "edit"; render(); break;
-    case "open-gtask": S.ui.gtDue = null; S.ui.open = "gtask"; render(); $("#gt-title")?.focus(); break;
-    case "plan-day": { const day = d.day; go("tasks"); S.ui.gtDue = day; S.ui.open = "gtask"; render(); $("#gt-title")?.focus(); break; }
+    case "open-gtask": addTaskSheet({}); break;
+    case "plan-day": addTaskSheet({ due: d.day }); break;
     case "delete": S.ui.open = "delete"; render(); break;
     case "delete-yes": { const p = cur(); deletePerson(p.id); S.ui.personId = null; S.ui.open = null; toast(p.name + " removed"); render(); break; }
     case "focus": { const p = cur(); if (!p.focus && focusPeople().length >= 5){ toast("Focus 5 is full. Unstar someone first."); break; } p.focus = !p.focus; savePerson(p); render(); break; }
@@ -945,7 +1116,7 @@ document.addEventListener("click", async e => {
     case "tdel-no": if (editing) editTaskSheet(editing.pid, editing.id, false); break;
     case "tdel-yes": { if (!editing) break; const { pid, id } = editing;
       if (pid){ const q = S.people.get(pid); q.tasks = (q.tasks||[]).filter(x => x.id !== id); savePerson(q); } else { S.meta.tasks = S.meta.tasks.filter(x => x.id !== id); saveMeta(); }
-      editing = null; closeSheet(); toast("Task deleted"); render(); break; }
+      const wasMeetup = !!md; editing = null; md = null; closeSheet(); toast(wasMeetup ? "Meetup deleted" : "Task deleted"); render(); break; }
     case "nudge-on": {
       if (!pushSupported()){ settingsSheet(); break; }
       el.disabled = true;
@@ -967,9 +1138,28 @@ document.addEventListener("click", async e => {
 });
 
 document.addEventListener("change", e => {
-  if (e.target.id === "set-time" && e.target.value){ S.settings.time = e.target.value; S.settings.tz = Intl.DateTimeFormat().resolvedOptions().timeZone; saveMeta(); toast("Reminder time set to " + e.target.value); }
+  const el = e.target; const d = el.dataset;
+  if (el.id === "set-time" && el.value){ S.settings.time = el.value; S.settings.tz = Intl.DateTimeFormat().resolvedOptions().timeZone; saveMeta(); toast("Reminder time set to " + el.value); }
+  if (/^set-(prep|morning|follow)$/.test(el.id)){
+    const md0 = meetupDefaults(); const val = el.value;
+    if (el.id === "set-prep" && val) md0.prepTime = val;
+    if (el.id === "set-morning" && val) md0.morningTime = val;
+    if (el.id === "set-follow"){ const h = Math.min(48, Math.max(1, Math.round(+val || 6))); md0.followupHours = h; el.value = h; }
+    S.meta.meetupDefaults = md0; saveMeta(); toast("Saved. Applies to new meetups and Restore defaults.");
+  }
+  if (!md) return;
+  if (d.md === "due" || d.md === "time"){ const prev = { due: md.due, time: md.time }; md[d.md] = el.value; if (md.kind === "meetup") whenChanged(prev); }
+  else if (d.md === "withPid"){ md.withPid = el.value || null; }
+  else if (d.md){ md[d.md] = el.value; }
+  if (d.remDate || d.remTime){ const r = md.reminders.find(x => x.id === (d.remDate || d.remTime)); if (r && el.value){ if (d.remDate) r.date = el.value; else r.time = el.value; md.touched = true; } }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.dataset && e.target.dataset.bring !== undefined && md){ e.preventDefault(); $('[data-act="bring-add"]')?.click(); }
 });
 document.addEventListener("input", e => {
+  const d = e.target.dataset;
+  if (md && (d.md === "title" || d.md === "location" || d.md === "remindAt")) md[d.md] = e.target.value;
+  if (md && d.bring){ const b = md.bringUp.find(x => x.id === d.bring); if (b) b.text = e.target.value; }
   if (e.target.id === "people-q"){ S.ui.q = e.target.value; const pos = e.target.selectionStart; render(); const i = $("#people-q"); i.focus(); try { i.setSelectionRange(pos,pos); } catch(_){} }
 });
 
@@ -995,15 +1185,22 @@ document.addEventListener("submit", e => {
     else { afterAddSheet(p); render(); }
     return;
   }
+  if (kind === "tsheet"){
+    if (!md) return;
+    if (md.kind === "meetup"){ saveMeetup(); return; }
+    const tm = md.remindAt; const t = { id:uid("t"), title: md.title.trim(), due: md.due || (tm ? today() : null), remindAt: tm || null, done:false };
+    if (md.withPid){ const q = S.people.get(md.withPid); (q.tasks ||= []).push(t); savePerson(q); } else { S.meta.tasks.push(t); saveMeta(); }
+    md = null; closeSheet(); render(); remindNote(tm, t.due);
+    return;
+  }
   const p = cur();
   if (kind === "log"){
+    S.ui.logDate = null;
     const type = f.querySelector('[data-logtype][aria-pressed="true"]')?.dataset.logtype || "In person";
     const entry = { id:uid("l"), at: v("lg-date") || today(), type, shared:v("lg-shared"), cares:v("lg-cares"), questions:v("lg-q") };
     (p.logs ||= []).push(entry);
     const pr = v("lg-prayer"); if (pr) (p.prayers ||= []).push({id:uid("r"), text:pr, at:entry.at, answeredAt:null});
     savePerson(p); S.ui.open = null; toast("Conversation saved"); render();
-  } else if (kind === "task"){
-    const tm = v("tk-time"); const due = v("tk-due") || (tm ? today() : null); (p.tasks ||= []).push({id:uid("t"), title:v("tk-title"), due, remindAt: tm || null, done:false}); savePerson(p); S.ui.open = null; render(); remindNote(tm, due);
   } else if (kind === "prayer"){
     (p.prayers ||= []).push({id:uid("r"), text:v("pr-text"), at:today(), answeredAt:null}); savePerson(p); S.ui.open = null; render();
   } else if (kind === "date"){
@@ -1011,10 +1208,6 @@ document.addEventListener("submit", e => {
   } else if (kind === "edit"){
     Object.assign(p, { name:v("ed-name")||p.name, note:v("ed-note"), howMet:v("ed-how"), relationship:v("ed-rel"), family:v("ed-family"), job:v("ed-job"), interests:v("ed-int"), faith: $("#ed-faith") ? v("ed-faith") : p.faith, phone:v("ed-phone"), email:v("ed-email") });
     savePerson(p); S.ui.open = null; toast("Saved"); render();
-  } else if (kind === "gtask"){
-    const pid = v("gt-person"); const tm = v("gt-time"); const t = {id:uid("t"), title:v("gt-title"), due:v("gt-due") || (tm ? today() : null), remindAt: tm || null, done:false}; remindNote(tm, t.due);
-    if (pid){ const q = S.people.get(pid); (q.tasks ||= []).push(t); savePerson(q); } else { S.meta.tasks.push(t); saveMeta(); }
-    S.ui.open = null; render();
   } else if (kind === "predit"){
     const ep = S.editPrayer; const q = ep && S.people.get(ep.pid); const r = q && (q.prayers||[]).find(x => x.id === ep.id);
     if (r){ r.text = v("pe-text") || r.text; r.at = v("pe-at") || r.at; r.answeredAt = $("#pe-answered").checked ? (v("pe-ans") || today()) : null; savePerson(q); }
