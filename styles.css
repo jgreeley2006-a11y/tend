@@ -268,3 +268,5 @@ body[data-circle="family"], .fam{ --accent:var(--fam); --accent-ink:var(--fam-in
 .contact{gap:8px}
 .contact-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:14px;color:var(--accent);text-decoration:none}
 .contact-btn:active{background:var(--accent-soft)}
+
+a.btn{display:inline-block;text-decoration:none}

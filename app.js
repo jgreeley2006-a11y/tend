@@ -333,12 +333,42 @@ function settingsSheet(){
         <div class="setting"><div class="grow"><div>Day of</div><div class="small muted">At this time, or 90 minutes before if that's earlier</div></div><input class="t" type="time" id="set-morning" value="${esc(meetupDefaults().morningTime)}" style="width:auto"></div>
         <div class="setting"><div class="grow"><div>Follow-up</div><div class="small muted">Hours after the meetup starts</div></div><input class="t" type="number" inputmode="numeric" min="1" max="48" step="1" id="set-follow" value="${esc(meetupDefaults().followupHours)}" style="width:80px"></div>
       </div></section>
+    <section class="stack" id="set-cal"><h3>Calendar</h3>${calSection()}</section>
     <section class="stack"><h3>Quiet mode</h3><p class="small muted" style="margin:0">Pause reminders for a day, a week, or until you turn it back on.</p><div><button class="btn small ghost" data-act="quiet">${isQuiet() ? "Quiet mode is on" : "Turn on quiet mode"}</button></div></section>
     <section class="stack"><h3>Your data</h3><p class="small muted" style="margin:0">Signed in as ${esc(USER?.email || "")}. Only you can see your list.</p>
       <div class="row wrap"><button class="btn small ghost" data-act="export">Download a copy</button><button class="btn small ghost" data-act="signout">Sign out</button></div></section>
     <div><button class="btn" data-act="close-sheet">Done</button></div>
   </div>`);
 }
+/* Calendar: a private, subscribable link to your meetups (served by the meetup-calendar function). */
+const calFeedUrl = token => window.TEND_CONFIG.SUPABASE_URL + "/functions/v1/meetup-calendar?t=" + token;
+async function loadCalToken(){
+  const { data, error } = await sb.from("calendar_feeds").select("token").eq("user_id", USER.id).maybeSingle();
+  S.cal = error ? { err:true } : { token: data?.token || null };
+  if ($("#set-cal")) $("#set-cal").innerHTML = "<h3>Calendar</h3>" + calSection();
+}
+async function newCalToken(){
+  const token = [...crypto.getRandomValues(new Uint8Array(24))].map(x => x.toString(16).padStart(2, "0")).join("");
+  const { error } = await sb.from("calendar_feeds").upsert({ user_id: USER.id, token });
+  if (error) throw error;
+  S.cal = { token };
+}
+function calSection(){
+  const c = S.cal;
+  if (!c){ loadCalToken().catch(() => { S.cal = { err:true }; }); return `<p class="small muted" style="margin:0">Loading…</p>`; }
+  if (c.err) return `<p class="small muted" style="margin:0">Couldn't load your calendar link. Check your connection and open Settings again.</p>`;
+  if (!c.token) return `<p class="small muted" style="margin:0">See your meetups in Apple or Google Calendar. They update on their own when you add, move or delete a meetup in Tend.</p>
+    <div><button class="btn small" data-act="cal-create">Add meetups to my calendar</button></div>`;
+  const url = calFeedUrl(c.token);
+  return `<p class="small muted" style="margin:0">Your meetups show up in a calendar called Tend Meetups. Changes can take up to an hour to appear.</p>
+    <div class="row wrap"><a class="btn small" href="${esc(url.replace(/^https?:/, "webcal:"))}">Subscribe in Apple Calendar</a><button class="btn small ghost" data-copy="${esc(url)}">Copy link</button></div>
+    <span class="hint">Google Calendar: on a computer, open calendar.google.com, then Other calendars › + › From URL, and paste the link.</span>
+    <span class="hint">Keep this link private. Anyone with it can see your meetups.</span>
+    <div id="cal-new">${calNewHtml(false)}</div>`;
+}
+const calNewHtml = ask => ask
+  ? `<div class="card stack"><div>Make a new link? The old one stops working, so you'll need to subscribe again with the new one.</div><div class="row"><button class="btn small" data-act="cal-new-yes">Make a new link</button><button class="btn small ghost" data-act="cal-new-no">Keep this one</button></div></div>`
+  : `<button class="linkbtn muted" data-act="cal-new-ask">Make a new link</button>`;
 function exportData(){
   const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), people:[...S.people.values()].filter(p=>!p.example), meta:S.meta }, null, 2)], { type:"application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "tend-" + today() + ".json"; document.body.append(a); a.click(); a.remove();
@@ -1139,6 +1169,13 @@ document.addEventListener("click", async e => {
     case "add-phone": S.ui.open = "edit"; render(); { const ph = $("#ed-phone"); if (ph){ ph.scrollIntoView({ block:"center" }); ph.focus(); } } break;
     case "contact-yes": { const c = S.contactAsk; S.contactAsk = null; closeSheet(); const p = c && S.people.get(c.pid); if (p) logQuick(p, c.type); break; }
     case "contact-no": S.contactAsk = null; closeSheet(); break;
+    case "cal-create": case "cal-new-yes":
+      el.disabled = true;
+      try { await newCalToken(); $("#set-cal").innerHTML = "<h3>Calendar</h3>" + calSection(); toast(d.act === "cal-create" ? "Your calendar link is ready" : "New link made. The old one no longer works."); }
+      catch(e){ console.warn(e); el.disabled = false; toast("Couldn't make the link. Check your connection and try again."); }
+      break;
+    case "cal-new-ask": $("#cal-new").innerHTML = calNewHtml(true); break;
+    case "cal-new-no": $("#cal-new").innerHTML = calNewHtml(false); break;
     case "open-gtask": addTaskSheet({}); break;
     case "plan-day": addTaskSheet({ due: d.day }); break;
     case "delete": S.ui.open = "delete"; render(); break;
@@ -1182,7 +1219,7 @@ document.addEventListener("click", async e => {
     case "ldel-yes": { const p = cur(); if (p && S.editLog){ p.logs = (p.logs||[]).filter(x => x.id !== S.editLog); savePerson(p); } S.editLog = null; closeSheet(); toast("Entry deleted"); render(); break; }
     case "toggle-daily": S.meta.dailySummary = S.meta.dailySummary === false; saveMeta(); settingsSheet(); break;
     case "export": exportData(); break;
-    case "signout": await sb.auth.signOut(); USER = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
+    case "signout": await sb.auth.signOut(); USER = null; S.cal = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
     case "signin-toggle": S.signin = { step: S.signin.step === "create" ? "signin" : "create", email: ($("#si-email")?.value || S.signin.email || "") }; render(); break;
     case "ai-question": aiQuestion(el); break;
   }
