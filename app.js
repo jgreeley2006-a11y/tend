@@ -212,6 +212,7 @@ async function startSession(user){
   loadVerses();
   try { await loadFromServer(); S.mode = "db"; softRender(); flushPending(); }
   catch(e){ console.warn(e); if (S.mode !== "db"){ S.mode = "db"; render(); } setSync("Offline. Showing what's saved on this phone."); }
+  setTimeout(askContact, 300); // in case iPhone closed Tend while you were in Phone or Messages
 }
 window.addEventListener("online", () => { if (USER){ flushPending(); } });
 document.addEventListener("visibilitychange", async () => {
@@ -659,6 +660,7 @@ function viewPerson(p){
       <div class="phead">${avatar(p)}
         <div class="grow">${isFam(p) ? `<div class="circle-tag">${ICON_HOME}Church family</div>` : ""}<h1 style="font-size:26px">${esc(p.name)}</h1><div class="meta">${esc([p.howMet, p.relationship].filter(Boolean).join(" · "))}${s!==null?` · last contact ${s===0?"today":s+"d ago"}`:""}</div></div>
         <button class="pill-btn ${p.focus?"on":""}" data-act="focus" aria-pressed="${!!p.focus}" ${!p.focus && focusCount>=5 ? `title="Focus 5 is full"`:""}>${p.focus?"★ Focus 5":"☆ Focus 5"}</button></div>
+      ${contactButtons(p)}
       <div>
         <div class="row spread"><span class="stage-label">${isFam(p) ? "How well I know them" : "Stage"}: <b>${esc(levels(p)[levelOf(p)])}</b></span><span class="small muted">Tap to change</span></div>
         <div class="stagebar" style="grid-template-columns:repeat(${levels(p).length},1fr)" role="group" aria-label="${isFam(p) ? "How well I know them" : "Journey stage"}">${levels(p).map((st,i)=>`<button class="${i<=levelOf(p)?"done":""}" data-stage="${i}" aria-label="${esc(st)}" title="${esc(st)}"></button>`).join("")}</div>
@@ -736,6 +738,52 @@ function viewPerson(p){
     <section>${o==="delete" ? `<div class="card stack"><div>Remove ${esc(p.name)} and everything you've logged about them? This can't be undone.</div><div class="row"><button class="btn small" style="background:var(--warn)" data-act="delete-yes">Remove</button><button class="btn small ghost" data-act="close">Keep</button></div></div>` : `<button class="linkbtn danger" data-act="delete">Remove from my list</button>`}</section>
   </div>`;
 }
+/* Call / Text: open the iPhone's Phone or Messages app, then offer to log it when you come back to Tend. */
+const ICON_PHONE = `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>`;
+const ICON_MSG = `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z"/></svg>`;
+// "(813) 555-0142 ext 4" -> "8135550142"; keeps a leading + for international numbers
+function dialable(phone){
+  const raw = String(phone || "").split(/\s*(?:x|ext\.?|extension)\s*\d/i)[0].trim();
+  const digits = raw.replace(/\D/g, "");
+  return digits.length >= 3 ? (raw.startsWith("+") ? "+" : "") + digits : null;
+}
+function contactButtons(p){
+  const num = dialable(p.phone);
+  if (!num) return `<div class="row contact"><button class="linkbtn" data-act="add-phone">+ Add phone number</button><span class="hint">to call or text ${esc(first(p.name))} from here</span></div>`;
+  return `<div class="row contact">
+    <a class="pill-btn contact-btn" href="tel:${esc(num)}" data-contact="Call" data-pid="${esc(p.id)}">${ICON_PHONE}Call</a>
+    <a class="pill-btn contact-btn" href="sms:${esc(num)}" data-contact="Text" data-pid="${esc(p.id)}">${ICON_MSG}Text</a></div>`;
+}
+const CONTACT_KEY = "tend-contact-pending";
+function getContact(){ try { return JSON.parse(localStorage.getItem(CONTACT_KEY) || "null"); } catch(_) { return null; } }
+function setContact(v){ try { if (v) localStorage.setItem(CONTACT_KEY, JSON.stringify(v)); else localStorage.removeItem(CONTACT_KEY); } catch(_){} }
+// Only ask if Tend actually went to the background (they didn't cancel the "Call?" box), within two hours.
+function askContact(){
+  const c = getContact(); if (!c) return;
+  if (!c.left){ if (Date.now() - c.at > 60000) setContact(null); return; }
+  setContact(null);
+  const p = S.people.get(c.pid);
+  if (!p || Date.now() - c.at > 2 * 3600000) return;
+  S.contactAsk = c;
+  openSheet(`<div class="stack"><h2>Did you ${c.type === "Call" ? "call" : "text"} ${esc(first(p.name))}?</h2>
+    <p class="small muted" style="margin:0">Tend can't see your calls or messages, so it checks with you before adding this to ${esc(first(p.name))}'s history.</p>
+    <div class="row wrap"><button class="btn" data-act="contact-yes">Yes, log it</button><button class="btn ghost" data-act="contact-no">No</button></div></div>`);
+}
+function logQuick(p, type){
+  (p.logs ||= []).push({ id:uid("l"), at:today(), type, shared:"", cares:"", questions:"" });
+  savePerson(p); render();
+  toast(({ "Call":"Called", "Text":"Texted", "In person":"Saw" }[type] || "Logged") + " " + first(p.name) + " today. Tap Add a note below to add details.");
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[data-contact]"); if (!a) return;
+  setContact({ pid: a.dataset.pid, type: a.dataset.contact, at: Date.now(), left: false });
+});
+document.addEventListener("visibilitychange", () => {
+  const c = getContact(); if (!c) return;
+  if (document.visibilityState === "hidden"){ if (!c.left){ c.left = true; setContact(c); } }
+  else if (S.mode === "db") setTimeout(askContact, 300);
+});
+
 function suggestQuestion(p, last, openPrayers){
   if (openPrayers[0]) return `"I've been praying about ${openPrayers[0].text.replace(/^(his|her)\s+/i,"your ").replace(/^./,c=>c.toLowerCase())}. How's that going?"`;
   if (last && last.cares) return `"You mentioned ${last.cares.toLowerCase()}. How's that going?"`;
@@ -1044,7 +1092,7 @@ document.addEventListener("click", async e => {
   if (d.toggleTask){ const pid = d.pid !== undefined ? (d.pid || null) : S.ui.personId; toggleTask(pid, d.toggleTask); return; }
   if (d.hist){ S.ui.hist = d.hist; render(); return; }
   if (d.wday){ S.ui.weekDay = S.ui.weekDay === d.wday ? null : d.wday; render(); return; }
-  if (d.quicklog){ const p = cur(); if (!p) return; const entry = { id:uid("l"), at:today(), type:d.quicklog, shared:"", cares:"", questions:"" }; (p.logs ||= []).push(entry); savePerson(p); render(); toast(({ "Call":"Called", "Text":"Texted", "In person":"Saw" }[d.quicklog] || "Logged") + " " + first(p.name) + " today. Tap Add a note below to add details."); return; }
+  if (d.quicklog){ const p = cur(); if (!p) return; logQuick(p, d.quicklog); return; }
   if (d.noteLog){ noteSheet(d.noteLog); return; }
   if (d.editLog){ editLogSheet(d.editLog); return; }
   if (d.editPrayer){ editPrayerSheet(d.pid, d.editPrayer); return; }
@@ -1088,6 +1136,9 @@ document.addEventListener("click", async e => {
     case "open-prayer": S.ui.open = "prayer"; render(); $("#pr-text")?.focus(); break;
     case "open-date": S.ui.open = "date"; render(); $("#dt-label")?.focus(); break;
     case "open-edit": S.ui.open = "edit"; render(); break;
+    case "add-phone": S.ui.open = "edit"; render(); { const ph = $("#ed-phone"); if (ph){ ph.scrollIntoView({ block:"center" }); ph.focus(); } } break;
+    case "contact-yes": { const c = S.contactAsk; S.contactAsk = null; closeSheet(); const p = c && S.people.get(c.pid); if (p) logQuick(p, c.type); break; }
+    case "contact-no": S.contactAsk = null; closeSheet(); break;
     case "open-gtask": addTaskSheet({}); break;
     case "plan-day": addTaskSheet({ due: d.day }); break;
     case "delete": S.ui.open = "delete"; render(); break;
