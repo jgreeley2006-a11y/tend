@@ -1,0 +1,711 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Approved clickable prototype for Tend the Week (Oct 2026). Sample people only; not part of the app. Spec: docs/TEND_WEEK_PLANNER_SPEC.md -->
+<title>Tend the Week</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one phone column. Story-style progress on top, scrolling card in the middle, sticky action bar at the bottom. */
+:root{
+  --bg:#F2F6F1; --surface:#FFFFFF; --sunk:#E7EEE7; --ink:#16211A; --muted:#58695D; --line:#D5DFD6;
+  --accent:#2C7A4C; --accent-ink:#FFFFFF; --accent-soft:#DCEEE2; --glow:rgba(44,122,76,.28);
+  --church:#6B4DAE; --church-soft:#ECE5F8; --warn:#9A5B0B; --warn-soft:#FBEDD5;
+  --f-display:"Bricolage Grotesque","Avenir Next",system-ui,sans-serif;
+  --f-body:"Figtree",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1410; --surface:#172019; --sunk:#1E2921; --ink:#E5EDE6; --muted:#97A89C; --line:#2A372E;
+  --accent:#5CBB82; --accent-ink:#08170D; --accent-soft:#1C3424; --glow:rgba(92,187,130,.25);
+  --church:#A98BE0; --church-soft:#2A2340; --warn:#E5A94E; --warn-soft:#33270F; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1410; --surface:#172019; --sunk:#1E2921; --ink:#E5EDE6; --muted:#97A89C; --line:#2A372E;
+  --accent:#5CBB82; --accent-ink:#08170D; --accent-soft:#1C3424; --glow:rgba(92,187,130,.25);
+  --church:#A98BE0; --church-soft:#2A2340; --warn:#E5A94E; --warn-soft:#33270F; color-scheme:dark}
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{max-width:460px;margin:0 auto;height:100%;display:flex;flex-direction:column;background:var(--bg);position:relative}
+@media (min-width:520px){.app{border-left:1px solid var(--line);border-right:1px solid var(--line)}}
+
+.top{display:flex;align-items:center;gap:12px;padding:12px 16px 8px}
+.top[hidden]{display:none!important}
+.prog{flex:1;display:flex;gap:4px}
+.seg{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.seg i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.close{width:32px;height:32px;border-radius:50%;border:0;background:var(--sunk);font-size:18px;line-height:1;display:grid;place-items:center}
+
+.screen{flex:1;overflow-y:auto;padding:8px 16px 24px;-webkit-overflow-scrolling:touch}
+.foot{display:flex;gap:10px;padding:12px 16px 14px;border-top:1px solid var(--line);background:var(--bg)}
+.foot[hidden]{display:none!important}
+.btn{border:0;border-radius:12px;padding:13px 16px;font-weight:600;font-size:15px}
+.btn.primary{flex:1;background:var(--accent);color:var(--accent-ink)}
+.btn.primary:disabled{opacity:.4;cursor:default}
+.btn.ghost{background:var(--sunk);color:var(--ink)}
+.linkbtn{background:none;border:0;padding:6px 0;color:var(--muted);font-weight:500;text-decoration:underline;text-underline-offset:3px}
+
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+.h1{font-size:32px;font-weight:700;margin-top:2px}
+.h2{font-size:24px;font-weight:700}
+.lede{color:var(--muted);margin:6px 0 0}
+.stack{display:flex;flex-direction:column;gap:14px}
+
+/* Today */
+.plan-card{display:flex;flex-direction:column;gap:4px;text-align:left;width:100%;border:0;border-radius:18px;padding:18px;background:var(--accent);color:var(--accent-ink);box-shadow:0 0 0 0 var(--glow);animation:glow 2.6s ease-in-out infinite;margin-top:16px}
+@keyframes glow{50%{box-shadow:0 0 0 10px var(--glow)}}
+.pc-kicker{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.85}
+.pc-title{font-family:var(--f-display);font-size:22px;font-weight:700}
+.pc-sub{opacity:.9;font-size:14px}
+.pc-go{margin-top:8px;align-self:flex-start;background:var(--accent-ink);color:var(--accent);padding:7px 14px;border-radius:999px;font-weight:700;font-size:14px}
+.faux{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;opacity:.7}
+.faux h4{margin:0 0 6px;font-size:13px;color:var(--muted);font-weight:600}
+.faux p{margin:0}
+.proto{font-size:12px;color:var(--muted);text-align:center;margin-top:18px}
+
+/* Pause */
+.pause{min-height:100%;display:flex;flex-direction:column;justify-content:center;gap:28px;padding-block:24px}
+.vtext{font-family:var(--f-display);font-size:26px;line-height:1.25;margin:0;font-weight:500}
+.vref{color:var(--muted);margin:10px 0 0;font-weight:600}
+.prayer{font-size:19px;margin:0;padding-left:14px;border-left:3px solid var(--accent)}
+
+/* Look back */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 10px}
+.stat b{display:block;font-family:var(--f-display);font-size:24px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted);line-height:1.3;display:block}
+.answered{background:var(--accent-soft);border-radius:var(--r);padding:14px}
+.answered b{display:block}
+.answered p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.carry{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:10px}
+.carry.letgo .carry-title{text-decoration:line-through;color:var(--muted)}
+.seg3{display:flex;gap:6px;flex-wrap:wrap}
+.opt{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}
+.opt[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+/* Person */
+.ptop{display:flex;align-items:center;gap:12px}
+.avatar{width:46px;height:46px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:700;color:#fff;background:var(--pc);font-size:16px}
+.avatar.sm{width:28px;height:28px;font-size:11px}
+.ptop h2{font-size:24px}
+.meta{color:var(--muted);font-size:13px}
+.count{margin-left:auto;font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ctx{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.ctx-row{display:flex;gap:10px;font-size:14px}
+.ctx-row .lbl{flex:none;width:86px;color:var(--muted);font-size:13px;padding-top:1px}
+.flag{color:var(--warn);font-weight:600}
+.lastnote{margin:0;font-size:14px;color:var(--muted);font-style:italic}
+.q{font-size:20px;font-weight:700;margin-top:6px}
+.sub{margin:4px 0 0;color:var(--muted);font-size:13px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{position:relative;border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 14px;font-weight:600;font-size:14px;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation;transition:transform .08s}
+.chip:active{transform:scale(.96)}
+.chip.on{border-color:var(--accent);background:var(--accent-soft)}
+.badge{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;margin-left:6px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:12px;font-variant-numeric:tabular-nums}
+.chip.rhythm{border-style:dashed;color:var(--muted)}
+.rows{display:flex;flex-direction:column;gap:8px}
+.row{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;touch-action:pan-y;transition:transform .15s,opacity .15s}
+.row-main,.row-sub{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row-text{flex:1;min-width:0;border:0;background:transparent;font-weight:600;padding:2px 0;font-size:15px}
+.row-text:focus{outline:none;border-bottom:1px solid var(--accent)}
+.tag{flex:none;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:var(--sunk);color:var(--muted)}
+.tag.meetup{background:var(--accent-soft);color:var(--accent)}
+.tag.pray{background:var(--church-soft);color:var(--church)}
+.x{flex:none;width:28px;height:28px;border:0;border-radius:50%;background:transparent;color:var(--muted);font-size:18px;line-height:1}
+.x:hover{background:var(--sunk)}
+.field{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.field select,.field input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:5px 8px;font-size:14px;color:var(--ink);min-width:0}
+.field input[type=text]{width:150px;max-width:100%}
+.rems{display:flex;flex-wrap:wrap;gap:6px}
+.rem{display:inline-flex;align-items:center;gap:4px;font-size:12px;background:var(--accent-soft);color:var(--ink);border-radius:999px;padding:3px 4px 3px 10px}
+.rem button{border:0;background:transparent;color:var(--muted);width:20px;height:20px;border-radius:50%;line-height:1}
+.rem.off{background:var(--sunk);color:var(--muted);text-decoration:line-through}
+.row.ghost{border-style:dashed;background:transparent;flex-direction:row;align-items:center;flex-wrap:wrap}
+.row.ghost .gtext{flex:1;min-width:0;color:var(--muted);font-size:14px}
+.keep{border:0;border-radius:999px;padding:6px 12px;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:13px}
+.addown{border:1.5px dashed var(--line);background:transparent;border-radius:12px;padding:11px;font-weight:600;color:var(--muted);width:100%}
+.hint{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:9px 12px;font-size:14px;font-weight:500}
+.prayonly{background:var(--church-soft);border-radius:var(--r);padding:14px;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.pfoot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
+
+/* Beyond deck */
+.deck{position:relative;height:300px;margin-top:4px}
+.card{position:absolute;inset:0;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:10px;touch-action:none;user-select:none;-webkit-user-select:none;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+.card.under{transform:scale(.95) translateY(10px);opacity:.6}
+.card.church{border-color:var(--church)}
+.ctag{align-self:flex-start;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:6px;background:var(--sunk);color:var(--muted)}
+.church .ctag{background:var(--church-soft);color:var(--church)}
+.why{font-family:var(--f-display);font-size:21px;font-weight:700}
+.card p{margin:0;color:var(--muted)}
+.card .last{margin-top:auto;font-size:13px}
+.stamp{position:absolute;top:18px;right:18px;font-weight:800;font-size:14px;letter-spacing:.06em;padding:4px 10px;border-radius:8px;border:2px solid;opacity:0;text-transform:uppercase}
+.stamp.yes{color:var(--accent);border-color:var(--accent)}
+.stamp.no{color:var(--muted);border-color:var(--muted);right:auto;left:18px}
+.deck-btns{display:flex;gap:10px}
+.deck-btns .btn{flex:1}
+.newp{display:flex;gap:8px}
+.newp input{flex:1;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 12px}
+.added{display:flex;flex-wrap:wrap;gap:8px}
+.pchip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 10px 4px 4px;font-size:13px;font-weight:600}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--pc);flex:none}
+
+/* Week */
+.capbar{display:flex;background:var(--sunk);border-radius:12px;padding:3px}
+.capbar button{flex:1;border:0;background:transparent;border-radius:10px;padding:8px;font-weight:600;color:var(--muted)}
+.capbar button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.strip-wrap{overflow-x:auto}
+.strip{display:grid;grid-template-columns:repeat(7,minmax(44px,1fr));gap:6px}
+.day{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 4px;text-align:center}
+.day small{display:block;font-size:11px;color:var(--muted);font-weight:600}
+.day b{display:block;font-family:var(--f-display);font-size:20px;font-variant-numeric:tabular-nums}
+.day .dots{display:flex;flex-wrap:wrap;justify-content:center;gap:2px;min-height:8px;margin-top:2px}
+.day .dots i{width:6px;height:6px;border-radius:50%;background:var(--pc)}
+.day.heavy{border-color:var(--warn);background:var(--warn-soft)}
+.dgroup h3{font-size:15px;font-weight:700;margin:4px 0 6px;display:flex;justify-content:space-between}
+.dgroup h3 span{font-family:var(--f-body);font-weight:500;color:var(--muted);font-size:13px}
+.item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:6px}
+.item .it{flex:1;min-width:0}
+.item .it b{display:block;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.item .it span{font-size:12px;color:var(--muted)}
+.movebox{display:flex;align-items:center;gap:8px;padding:0 4px 10px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+.movebox select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 8px}
+.empty{color:var(--muted);font-size:13px;margin:0 0 8px}
+
+/* Prayer */
+.prow{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line)}
+.prow .pd{width:84px;flex:none;font-weight:700}
+.prow .pd small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.pnames{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+.pname{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 10px;font-size:13px;font-weight:600}
+.pname.auto{border-style:dashed}
+.pname.off{opacity:.4;text-decoration:line-through}
+
+/* Done */
+.big{font-family:var(--f-display);font-size:30px;font-weight:700;line-height:1.15;margin:0}
+.big em{font-style:normal;color:var(--accent)}
+.breakdown{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+.bd{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.bd b{font-family:var(--f-display);font-size:22px;font-variant-numeric:tabular-nums;display:block}
+.bd span{font-size:13px;color:var(--muted)}
+.notif{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 14px;box-shadow:0 6px 18px rgba(0,0,0,.06)}
+.notif .nh{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px}
+.notif p{margin:0;font-size:14px}
+.blessing{border-left:3px solid var(--accent);padding-left:14px}
+.blessing p{margin:0;font-family:var(--f-display);font-size:19px;line-height:1.3}
+.blessing small{display:block;color:var(--muted);margin-top:6px;font-weight:600}
+.note{font-size:13px;color:var(--muted);background:var(--sunk);border-radius:12px;padding:12px 14px}
+.note ul{margin:6px 0 0;padding-left:18px}
+
+/* Sheet + toast */
+.sheet-wrap{position:fixed;inset:0;z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.35)}
+.sheet{position:relative;width:100%;max-width:460px;background:var(--surface);border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:10px;max-height:85%;overflow-y:auto;animation:up .2s ease-out}
+@keyframes up{from{transform:translateY(30px);opacity:.5}}
+.sheet h3{font-size:19px}
+.sopt{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:12px 14px;font-weight:600}
+.sopt span{font-weight:500;color:var(--muted);font-size:13px}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;max-width:calc(100% - 32px);text-align:center}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="app">
+  <header class="top" id="top" hidden></header>
+  <main class="screen" id="screen"></main>
+  <footer class="foot" id="foot" hidden></footer>
+</div>
+<div class="sheet-wrap" id="sheet" hidden><div class="scrim" data-act="closesheet"></div><div class="sheet" id="sheetBody" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const initials=n=>n.split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const FULL=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const DATES=[12,13,14,15,16,17,18];
+const dayLabel=i=>`${DAYS[i]}, Oct ${DATES[i]}`;
+
+const TYPES={
+  text:{label:'Text',def:0,tpl:f=>`Text ${f}`},
+  meetup:{label:'Meetup',def:5,tpl:f=>`Coffee with ${f}`},
+  invite:{label:'Invite',def:2,tpl:f=>`Invite ${f} to…`},
+  verse:{label:'Send a verse',def:3,tpl:f=>`Send ${f} a verse`},
+  drop:{label:'Drop something off',def:4,tpl:f=>`Drop something off for ${f}`},
+  pray:{label:'Pray',def:1,tpl:f=>`Pray for ${f}`},
+  custom:{label:'Your own',def:2,tpl:()=>''}
+};
+const CHIPS=['text','meetup','invite','verse','drop','pray'];
+const RHYTHMS={
+  text:[['Text twice this week','Mon · Thu',[0,3]],['Text three times','Mon · Wed · Fri',[0,2,4]]],
+  pray:[['Pray daily','Every day',[0,1,2,3,4,5,6]],['Every other day','Mon · Wed · Fri · Sun',[0,2,4,6]],['Twice this week','Tue · Fri',[1,4]]],
+  meetup:[['Two meetups','Tue · Sat',[1,5]]],
+  _:[['Twice this week','Tue · Fri',[1,4]]]
+};
+
+const PEOPLE={
+  marcus:{name:'Marcus Hale',first:'Marcus',color:'#2A9D8F',meta:'Stage 2 · Depth 3 · Coworker',last:9,lastType:'In person',lastNote:'Coffee after work. Talked about the new job and how stretched he feels at home. Asked why I still go to church.',prayers:['Job interview on Tuesday'],dates:[],ghosts:[{type:'text',text:'Text good luck before his interview',day:0},{type:'pray',text:'Pray for Marcus before the interview',day:1}]},
+  jen:{name:'Jen Alvarez',first:'Jen',color:'#C9822A',meta:'Stage 1 · Depth 2 · Neighbor',last:16,lastType:'Text',lastNote:'Her mom was going in for surgery. She said she would love prayer.',prayers:["Her mom's surgery recovery"],dates:[],ghosts:[{type:'text',text:"Ask how her mom's surgery went",day:0}]},
+  danny:{name:'Danny Brooks',first:'Danny',color:'#3D7CC9',meta:'Stage 3 · Depth 4 · Brother-in-law',last:5,lastType:'In person',lastNote:"Family dinner. Opened up about his dad's health scare and thanked us for praying.",prayers:[],dates:['Birthday Thursday, Oct 15'],ghosts:[{type:'drop',text:'Drop off a birthday card',day:3},{type:'text',text:'Happy birthday text',day:3}]},
+  priya:{name:'Priya Shah',first:'Priya',color:'#C4577A',meta:'Stage 3 · Depth 2 · Gym friend',last:11,lastType:'In person',lastNote:'Asked good questions about the resurrection. Said she has never read the Gospels.',prayers:['Wisdom about a move to Orlando'],dates:[],ghosts:[{type:'invite',text:'Invite to Thursday Bible study',day:2},{type:'verse',text:'Send her John 20:30–31',day:1}]},
+  tom:{name:'Tom Reilly',first:'Tom',color:'#7A8B2E',meta:"Stage 0 · Depth 1 · Coach on the kids' team",last:21,lastType:'In person',lastNote:'Short talk at practice. Mentioned his oldest is struggling at school.',prayers:[],dates:[],ghosts:[{type:'meetup',text:'Lunch with Tom, learn about his kids',day:5}]},
+  carol:{name:'Aunt Carol',first:'Carol',color:'#D9703F'},
+  carlos:{name:'Carlos Mendez',first:'Carlos',color:'#2F9AC2'},
+  ruth:{name:'Ruth Okafor',first:'Ruth',color:'#8A63C9',church:true},
+  kevin:{name:'Kevin Park',first:'Kevin',color:'#6C7A89'},
+  sam:{name:'Sam Whitfield',first:'Sam',color:'#9A6B4A'}
+};
+const FOCUS=['marcus','jen','danny','priya','tom'];
+const BEYOND=[
+  {pid:'carol',tag:'Family',why:'Birthday Wednesday',detail:'Lives in Ocala. Last call was about her knee surgery.',last:'Last contact 3 weeks ago'},
+  {pid:'carlos',tag:'Reach',why:'Met 3 weeks ago, no follow-up yet',detail:'Met at the gym. Just moved from Miami with his wife and two girls.',last:'Met Sep 15'},
+  {pid:'ruth',tag:'Church member',why:"You haven't really met yet",detail:'Sits near the back at the 9:30 service. Joined in August.',last:'Never talked'},
+  {pid:'kevin',tag:'Reach',why:'47 days since you talked',detail:'College friend. Going through a hard season at home, last you heard.',last:'Last contact Aug 20'},
+  {pid:'sam',tag:'Reach',why:'Open prayer request',detail:'Baby due in November. Their first.',last:'Last contact 2 weeks ago'}
+];
+const CARRY=[
+  {id:'c1',pid:'priya',title:'Send Priya the podcast link'},
+  {id:'c2',pid:'tom',title:'Call Tom back about the game'},
+  {id:'c3',pid:'kevin',title:'Text Kevin'}
+];
+const SEQ=['pause','back','focus','beyond','week','prayer','done'];
+const CAP={light:3,normal:5,full:8};
+const NEWCOLORS=['#B5574B','#4F8A6B','#5D6FC0','#A0782E'];
+
+let uid=0; const nid=()=>'s'+(++uid);
+let S; function fresh(){S={screen:'today',started:false,focusIdx:0,pauseReady:false,carry:CARRY.map(c=>({...c,choice:null,day:2,stepId:null})),steps:[],dismissed:new Set(),justPray:new Set(),beyondIdx:0,beyondTouched:[],capacity:'normal',moveOpen:null,autoMoves:{},extraPray:[],newCount:0};}
+fresh();
+
+/* ---------- steps ---------- */
+function nextDay(pid,type){
+  const same=S.steps.filter(s=>s.pid===pid&&s.type===type).map(s=>s.day);
+  if(!same.length) return TYPES[type].def;
+  const last=Math.max(...same);
+  if(last+3<=6) return last+3;
+  for(let d=0;d<7;d++) if(!same.includes(d)) return d;
+  return last;
+}
+function addStep(pid,type,o={}){
+  const p=PEOPLE[pid];
+  const s={id:nid(),pid,type,text:o.text??TYPES[type].tpl(p.first),day:o.day??nextDay(pid,type),time:o.time??(type==='meetup'?'09:00':''),loc:'',remOff:new Set(),src:o.src||'plan'};
+  S.steps.push(s); S.justPray.delete(pid); return s;
+}
+const stepsFor=pid=>S.steps.filter(s=>s.pid===pid);
+const countType=(pid,type)=>S.steps.filter(s=>s.pid===pid&&s.type===type).length;
+function fmtTime(hm){if(!hm)return'';let[h,m]=hm.split(':').map(Number);const ap=h>=12?'PM':'AM';const h12=((h+11)%12)+1;return `${h12}${m?':'+String(m).padStart(2,'0'):''} ${ap}`;}
+function reminders(s){
+  const [h,m]=(s.time||'09:00').split(':').map(Number);
+  let fh=h+6,fd=s.day; if(fh>=24){fh-=24;fd++;}
+  const fdl=fd>6?'Mon':DAYS[fd];
+  return [
+    {k:'prep',label:'Night before',when:s.day===0?'Sun 8 PM':`${DAYS[s.day-1]} 8 PM`},
+    {k:'dayof',label:'Morning of',when:`${DAYS[s.day]} 7:30 AM`},
+    {k:'followup',label:'Follow-up',when:`${fdl} ${fmtTime(String(fh).padStart(2,'0')+':'+String(m).padStart(2,'0'))}`}
+  ];
+}
+
+/* ---------- render ---------- */
+function render(keep=true){
+  const sc=$('#screen'); const y=sc.scrollTop;
+  renderTop(); sc.innerHTML=Screens[S.screen](); renderFoot();
+  sc.scrollTop=keep?y:0;
+  if(S.screen==='beyond') bindDeck();
+}
+function go(screen){S.screen=screen;S.moveOpen=null;render(false);
+  if(screen==='pause'&&!S.pauseReady){setTimeout(()=>{S.pauseReady=true;if(S.screen==='pause')renderFoot();},reduce?0:2500);}
+}
+function renderTop(){
+  const t=$('#top');
+  if(S.screen==='today'){t.hidden=true;return;}
+  t.hidden=false;
+  const cur=SEQ.indexOf(S.screen);
+  t.innerHTML=`<div class="prog" aria-label="Step ${cur+1} of ${SEQ.length}">${SEQ.map((k,i)=>{
+    let w=i<cur?100:i>cur?0:(k==='focus'?((S.focusIdx+1)/5)*100:k==='beyond'?Math.min(100,(S.beyondIdx/BEYOND.length)*100||8):100);
+    return `<span class="seg"><i style="width:${w}%"></i></span>`}).join('')}</div>
+    <button class="close" data-act="close" aria-label="Close planning">×</button>`;
+}
+function renderFoot(){
+  const f=$('#foot');
+  if(S.screen==='today'||S.screen==='done'){f.hidden=true;return;}
+  f.hidden=false;
+  let label='Continue',dis=false;
+  if(S.screen==='pause'){label="I'm ready";dis=!S.pauseReady;}
+  if(S.screen==='back') label='Start with my Focus 5';
+  if(S.screen==='focus') label=S.focusIdx<4?`Next: ${PEOPLE[FOCUS[S.focusIdx+1]].first}`:'Beyond the Five';
+  if(S.screen==='beyond') label='Shape the week';
+  if(S.screen==='week') label='Prayer rotation';
+  if(S.screen==='prayer') label='Finish planning';
+  f.innerHTML=`<button class="btn ghost" data-act="back">Back</button><button class="btn primary" data-act="next" ${dis?'disabled':''}>${label}</button>`;
+}
+
+const Screens={
+today(){
+  return `<div class="stack" style="padding-top:12px">
+    <div><div class="eyebrow">Sunday, October 11</div><h1 class="h1">Today</h1></div>
+    <button class="plan-card" data-act="start">
+      <span class="pc-kicker">Tend the Week</span>
+      <span class="pc-title">${S.started?'Pick up where you left off':'Your week is ready to plan'}</span>
+      <span class="pc-sub">Your Focus 5, next steps, and who else is on your heart. About 6 minutes.</span>
+      <span class="pc-go">${S.started?'Continue':'Start'} →</span>
+    </button>
+    <div class="faux"><h4>Verse of the day</h4><p>“Let your speech be alway with grace, seasoned with salt.” Colossians 4:6</p></div>
+    <div class="faux"><h4>Check in</h4><p>Jen Alvarez · 16 days since you talked</p></div>
+    <div class="faux"><h4>Pray for</h4><p>Marcus, Jen, Danny, Priya, Tom</p></div>
+    <p class="proto">Prototype with sample people. Nothing here touches the live app.</p>
+  </div>`;
+},
+pause(){
+  return `<div class="pause">
+    <div class="eyebrow">Before you plan</div>
+    <div><p class="vtext">“Walk in wisdom toward them that are without, redeeming the time.”</p><p class="vref">Colossians 4:5</p></div>
+    <p class="prayer">Take a moment to pray, asking: <b>“Lord, who do you want me to love this week?”</b></p>
+  </div>`;
+},
+back(){
+  return `<div class="stack">
+    <div><div class="eyebrow">Last week · Oct 5–11</div><h2 class="h2">Look back</h2></div>
+    <div class="stats">
+      <div class="stat"><b>6</b><span>conversations logged</span></div>
+      <div class="stat"><b>9/12</b><span>next steps done</span></div>
+      <div class="stat"><b>1</b><span>prayer answered</span></div>
+    </div>
+    <div class="answered"><b>Answered: Danny's dad, biopsy came back clear</b><p>You started praying Sep 21. Marked answered Oct 8.</p></div>
+    <div><h3 class="q" style="font-size:17px">Unfinished from last week</h3><p class="sub">Decide what comes with you. Letting go is fine.</p></div>
+    ${S.carry.map(c=>`<div class="carry ${c.choice==='letgo'?'letgo':''}">
+      <div style="display:flex;align-items:center;gap:10px"><span class="avatar sm" style="--pc:${PEOPLE[c.pid].color}">${initials(PEOPLE[c.pid].name)}</span><span class="carry-title" style="font-weight:600">${esc(c.title)}</span></div>
+      <div class="seg3">
+        ${[['carry','Carry forward'],['resched','Reschedule'],['letgo','Let go']].map(([k,l])=>`<button class="opt" data-act="carry" data-c="${c.id}" data-k="${k}" aria-pressed="${c.choice===k}">${l}</button>`).join('')}
+      </div>
+      ${c.choice==='resched'?`<label class="field">Move to <select data-act="carryday" data-c="${c.id}" id="cd-${c.id}">${DAYS.map((d,i)=>`<option value="${i}" ${i===c.day?'selected':''}>${dayLabel(i)}</option>`).join('')}</select></label>`:''}
+      ${c.choice==='carry'?`<span class="sub" style="margin:0">Added to Monday.</span>`:''}
+    </div>`).join('')}
+  </div>`;
+},
+focus(){
+  const pid=FOCUS[S.focusIdx],p=PEOPLE[pid],steps=stepsFor(pid);
+  const ghosts=p.ghosts.map((g,i)=>({...g,i})).filter(g=>!S.dismissed.has(pid+g.i));
+  const overdue=p.last>14;
+  return `<div class="stack">
+    <div class="ptop"><span class="avatar" style="--pc:${p.color}">${initials(p.name)}</span><div style="min-width:0"><div class="eyebrow">Focus 5</div><h2>${esc(p.name)}</h2><div class="meta">${esc(p.meta)}</div></div><span class="count">${S.focusIdx+1} of 5</span></div>
+    <div class="ctx">
+      <div class="ctx-row"><span class="lbl">Last talked</span><span class="${overdue?'flag':''}">${p.last} days ago · ${p.lastType}${overdue?' · time to check in':''}</span></div>
+      <p class="lastnote">“${esc(p.lastNote)}”</p>
+      ${p.prayers.length?`<div class="ctx-row"><span class="lbl">Praying for</span><span>${p.prayers.map(esc).join(', ')}</span></div>`:''}
+      ${p.dates.length?`<div class="ctx-row"><span class="lbl">This week</span><span class="flag">${p.dates.map(esc).join(', ')}</span></div>`:''}
+    </div>
+    ${S.justPray.has(pid)&&!steps.length?`<div class="prayonly"><span><b>Just praying for ${p.first} this week.</b><br><span class="sub">No tasks. ${p.first} goes into your prayer rotation.</span></span><button class="opt" data-act="unpray">Undo</button></div>`:''}
+    <div><h3 class="q">What would you like to do with ${p.first} this week?</h3>
+    <p class="sub">All optional. Tap as many as you like, tap again to add another. Press and hold a chip for a rhythm.</p></div>
+    <div class="chips">
+      ${CHIPS.map(t=>{const n=countType(pid,t);return `<button class="chip ${n?'on':''}" data-chip="${t}">${TYPES[t].label}${n?`<span class="badge">×${n}</span>`:''}</button>`}).join('')}
+      <button class="chip rhythm" data-act="rhythms">Rhythms…</button>
+    </div>
+    ${ghosts.length?`<div class="rows">${ghosts.map(g=>`<div class="row ghost"><span class="tag">Suggested</span><span class="gtext">${esc(g.text)} · ${DAYS[g.day]}</span><button class="keep" data-act="keep" data-g="${g.i}">Add</button><button class="x" data-act="dismiss" data-g="${g.i}" aria-label="Dismiss suggestion">×</button></div>`).join('')}</div>`:''}
+    ${steps.length?`<div class="rows">${steps.map(rowHTML).join('')}</div>`:''}
+    <button class="addown" data-act="addown">+ Add your own</button>
+    ${steps.length>=4?`<div class="hint">That's a full week with ${p.first}. Good problem to have.</div>`:''}
+    <div class="pfoot"><button class="linkbtn" data-act="justpray">Nothing this week, just pray</button><button class="linkbtn" data-act="swap">Swap out of Focus 5</button></div>
+  </div>`;
+},
+beyond(){
+  const touched=[...new Set(S.beyondTouched)];
+  let deck='';
+  if(S.beyondIdx<BEYOND.length){
+    const c=BEYOND[S.beyondIdx],n=BEYOND[S.beyondIdx+1];
+    deck=`<div class="deck">
+      ${n?cardHTML(n,'under'):''}
+      ${cardHTML(c,'top')}
+    </div>
+    <div class="deck-btns"><button class="btn ghost" data-act="skip">Not this week</button><button class="btn primary" data-act="touch">Add a touch</button></div>
+    <p class="sub" style="text-align:center;margin:0">Swipe right to add a touch, left to skip · ${S.beyondIdx+1} of ${BEYOND.length}</p>`;
+  } else {
+    deck=`<div class="ctx"><b>That's everyone the app surfaced.</b><span class="sub" style="margin:0">${touched.length?`You added touches for ${touched.map(p=>PEOPLE[p].first).join(', ')}.`:'You skipped them all this week. That\'s okay.'}</span><button class="linkbtn" data-act="redeck" style="align-self:flex-start">Go through them again</button></div>`;
+  }
+  const newbies=Object.keys(PEOPLE).filter(k=>k.startsWith('new'));
+  return `<div class="stack">
+    <div><div class="eyebrow">Beyond the Five</div><h2 class="h2">Who else is on your heart?</h2><p class="lede">A few people the app noticed. Light touches only.</p></div>
+    ${deck}
+    <div style="margin-top:8px"><h3 class="q" style="font-size:17px">Did God bring anyone new to mind?</h3><p class="sub">Add them and they'll go on your prayer list this week.</p></div>
+    <form class="newp" data-act="newp"><input id="newname" placeholder="Their name" autocomplete="off"><button class="btn primary" style="flex:none">Add</button></form>
+    ${newbies.length?`<div class="added">${newbies.map(k=>`<span class="pchip"><span class="avatar sm" style="--pc:${PEOPLE[k].color}">${initials(PEOPLE[k].name)}</span>${esc(PEOPLE[k].name)} · Pray Mon</span>`).join('')}</div>`:''}
+  </div>`;
+},
+week(){
+  const lim=CAP[S.capacity];
+  const byDay=DAYS.map((_,d)=>S.steps.filter(s=>s.day===d));
+  const heavy=byDay.map((a,d)=>a.length>lim?d:-1).filter(d=>d>=0);
+  const people=new Set(S.steps.map(s=>s.pid));
+  return `<div class="stack">
+    <div><div class="eyebrow">Oct 12–18</div><h2 class="h2">Shape the week</h2><p class="lede">Tending ${people.size} ${people.size===1?'person':'people'} with ${S.steps.length} next step${S.steps.length===1?'':'s'}. Tap a step to move it.</p></div>
+    <div><div class="sub" style="margin:0 0 6px">How much room do you have this week?</div>
+    <div class="capbar">${['light','normal','full'].map(k=>`<button data-act="cap" data-k="${k}" aria-pressed="${S.capacity===k}">${k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div></div>
+    <div class="strip-wrap"><div class="strip">${byDay.map((a,d)=>`<div class="day ${a.length>lim?'heavy':''}"><small>${DAYS[d]}</small><b>${a.length}</b><div class="dots">${a.slice(0,8).map(s=>`<i style="--pc:${PEOPLE[s.pid].color}"></i>`).join('')}</div></div>`).join('')}</div></div>
+    ${heavy.map(d=>`<div class="hint">${FULL[d]} looks heavy (${byDay[d].length} steps). Move something?</div>`).join('')}
+    ${!S.steps.length?`<p class="empty">No next steps yet. Go back to your Focus 5 to add some.</p>`:''}
+    ${byDay.map((a,d)=>`<div class="dgroup"><h3>${FULL[d]} <span>Oct ${DATES[d]}</span></h3>
+      ${a.length?a.map(s=>`<button class="item" data-act="move" data-id="${s.id}"><span class="dot" style="--pc:${PEOPLE[s.pid].color}"></span><span class="it"><b>${esc(s.text||TYPES[s.type].label)}</b><span>${esc(PEOPLE[s.pid].first)} · ${TYPES[s.type].label}${s.time?' · '+fmtTime(s.time):''}</span></span></button>
+        ${S.moveOpen===s.id?`<div class="movebox">Move to <select data-act="moveday" data-id="${s.id}" id="mv-${s.id}">${DAYS.map((x,i)=>`<option value="${i}" ${i===s.day?'selected':''}>${dayLabel(i)}</option>`).join('')}</select><button class="linkbtn" data-act="delstep" data-id="${s.id}">Remove</button></div>`:''}`).join(''):`<p class="empty">Open</p>`}
+    </div>`).join('')}
+  </div>`;
+},
+prayer(){
+  const r=rotation();
+  return `<div class="stack">
+    <div><div class="eyebrow">Prayer rotation</div><h2 class="h2">Who you'll pray for each day</h2><p class="lede">Solid names come from your Pray steps. Dashed names were spread out for you. Tap a name to move it to another day, or tap + to add someone.</p></div>
+    <div>${r.map((list,d)=>`<div class="prow"><div class="pd">${DAYS[d]}<small>Oct ${DATES[d]}</small></div><div class="pnames">${list.map(x=>`<button class="pname ${x.kind==='auto'?'auto':''}" data-act="pname" data-kind="${x.kind}" data-ref="${esc(x.ref)}" data-pid="${x.pid}" data-day="${d}"><span class="dot" style="--pc:${PEOPLE[x.pid].color}"></span>${esc(PEOPLE[x.pid].first)}</button>`).join('')}<button class="pname auto" data-act="padd" data-day="${d}" aria-label="Add someone to ${FULL[d]}">+</button></div></div>`).join('')}</div>
+    <div class="note">Your daily summary's “Pray for…” line follows this list, so Monday's notification names only Monday's people.</div>
+  </div>`;
+},
+done(){
+  const people=new Set(S.steps.map(s=>s.pid));
+  const counts={};S.steps.forEach(s=>counts[s.type]=(counts[s.type]||0)+1);
+  const order=['meetup','text','pray','invite','verse','drop','custom'];
+  const plural={meetup:'meetups',text:'texts',pray:'prayer days',invite:'invites',verse:'verses',drop:'drop-offs',custom:'other steps'};
+  const single={meetup:'meetup',text:'text',pray:'prayer day',invite:'invite',verse:'verse',drop:'drop-off',custom:'other step'};
+  const wed=FOCUS.filter(p=>stepsFor(p).length).map(p=>{const n=stepsFor(p).length;return `${PEOPLE[p].first} ${Math.floor(n/2)} of ${n}`});
+  return `<div class="stack" style="padding-top:8px">
+    <div class="eyebrow">Your week is planned</div>
+    <p class="big">Tending <em>${people.size} ${people.size===1?'person':'people'}</em> with ${S.steps.length} next step${S.steps.length===1?'':'s'}.</p>
+    ${S.steps.length?`<div class="breakdown">${order.filter(k=>counts[k]).map(k=>`<div class="bd"><b>${counts[k]}</b><span>${counts[k]===1?single[k]:plural[k]}</span></div>`).join('')}</div>`:''}
+    ${people.size?`<div class="added">${[...people].map(p=>`<span class="pchip"><span class="avatar sm" style="--pc:${PEOPLE[p].color}">${initials(PEOPLE[p].name)}</span>${esc(PEOPLE[p].first)} · ${stepsFor(p).length}</span>`).join('')}</div>`:''}
+    <div class="blessing"><p>“And let us not be weary in well doing: for in due season we shall reap, if we faint not.”</p><small>Galatians 6:9</small></div>
+    <div><div class="sub" style="margin:0 0 6px">Example of Wednesday's check-in</div>
+    <div class="notif"><div class="nh"><span>TEND</span><span>Wed 12:00 PM</span></div><p><b>You're halfway through the week.</b> ${wed.length?wed.join(' · '):'Who is on your heart today?'}. Who's left?</p></div></div>
+    <div class="note"><b>In the real app, finishing would:</b><ul><li>Save each step as a task on that person</li><li>Give each Meetup its night-before, morning-of and follow-up reminders</li><li>Point the daily “Pray for…” line at the rotation</li><li>Schedule the Wednesday check-in and Saturday reflection</li></ul></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" data-act="home">Back to Today</button><button class="btn ghost" data-act="restart">Start over</button></div>
+  </div>`;
+}
+};
+
+function rowHTML(s){
+  const isM=s.type==='meetup';
+  return `<div class="row" data-row="${s.id}">
+    <div class="row-main"><span class="tag ${s.type}">${TYPES[s.type].label}</span>
+      <input class="row-text" id="t-${s.id}" data-f="text" data-id="${s.id}" value="${esc(s.text)}" placeholder="What's the step?" aria-label="Step">
+      <button class="x" data-act="del" data-id="${s.id}" aria-label="Remove step">×</button></div>
+    <div class="row-sub">
+      <label class="field">Day <select id="d-${s.id}" data-f="day" data-id="${s.id}">${DAYS.map((d,i)=>`<option value="${i}" ${i===s.day?'selected':''}>${dayLabel(i)}</option>`).join('')}</select></label>
+      <label class="field">${isM?'Starts':'Remind at'} <input type="time" id="tm-${s.id}" data-f="time" data-id="${s.id}" value="${esc(s.time)}"></label>
+      ${isM?`<label class="field">Where <input type="text" id="l-${s.id}" data-f="loc" data-id="${s.id}" value="${esc(s.loc)}" placeholder="Kahwa on 4th"></label>`:''}
+    </div>
+    ${isM?`<div class="rems">${reminders(s).map(r=>`<span class="rem ${s.remOff.has(r.k)?'off':''}">${r.label} · ${r.when}<button data-act="rem" data-id="${s.id}" data-k="${r.k}" aria-label="${s.remOff.has(r.k)?'Restore':'Remove'} reminder">${s.remOff.has(r.k)?'↺':'×'}</button></span>`).join('')}</div>`:''}
+  </div>`;
+}
+function cardHTML(c,cls){
+  const p=PEOPLE[c.pid];
+  return `<div class="card ${cls} ${p.church?'church':''}" ${cls==='top'?'id="topcard"':''}>
+    <span class="stamp yes">Add</span><span class="stamp no">Skip</span>
+    <div style="display:flex;align-items:center;gap:12px"><span class="avatar" style="--pc:${p.color}">${initials(p.name)}</span><div><b style="font-size:17px">${esc(p.name)}</b><br><span class="ctag">${esc(c.tag)}</span></div></div>
+    <div class="why">${esc(c.why)}</div>
+    <p>${esc(c.detail)}</p>
+    <p class="last">${esc(c.last)}</p>
+  </div>`;
+}
+function rotation(){
+  const r=DAYS.map(()=>[]);
+  const add=(d,x)=>{if(d>=0&&d<7&&!r[d].some(y=>y.pid===x.pid))r[d].push(x);};
+  S.steps.filter(s=>s.type==='pray').forEach(s=>add(s.day,{pid:s.pid,kind:'step',ref:s.id}));
+  const without=FOCUS.filter(pid=>!S.steps.some(s=>s.pid===pid&&s.type==='pray'));
+  without.forEach((pid,i)=>{const d1=Math.round(i*7/Math.max(without.length,1))%7;
+    [d1,(d1+3)%7].forEach((d,j)=>{const key=pid+'|'+j;add(key in S.autoMoves?S.autoMoves[key]:d,{pid,kind:'auto',ref:key});});});
+  S.extraPray.forEach(x=>add(x.day,{pid:x.pid,kind:'extra',ref:x.id}));
+  return r;
+}
+function prayMove(kind,ref,nd){
+  if(kind==='step'){const s=S.steps.find(x=>x.id===ref);if(!s)return;if(nd<0)S.steps=S.steps.filter(x=>x!==s);else s.day=nd;}
+  if(kind==='auto') S.autoMoves[ref]=nd;
+  if(kind==='extra'){const x=S.extraPray.find(y=>y.id===ref);if(!x)return;if(nd<0)S.extraPray=S.extraPray.filter(y=>y!==x);else x.day=nd;}
+}
+function prayNameSheet(b){
+  const {kind,ref,pid}=b.dataset,day=+b.dataset.day,p=PEOPLE[pid];
+  const html=`<h3>Pray for ${esc(p.first)}</h3><p class="sub" style="margin:0">Currently on ${FULL[day]}.</p>
+    <div class="sub" style="margin:4px 0 0;font-weight:600">Move to</div>
+    <div class="chips">${DAYS.map((d,i)=>`<button class="chip" data-act="pmove" data-d="${i}" ${i===day?'disabled style="opacity:.4"':''}>${d}</button>`).join('')}</div>
+    <div class="sub" style="margin:4px 0 0;font-weight:600">Also pray on</div>
+    <div class="chips">${DAYS.map((d,i)=>`<button class="chip" data-act="palso" data-d="${i}" ${i===day?'disabled style="opacity:.4"':''}>${d}</button>`).join('')}</div>
+    <button class="sopt" data-act="poff">Take ${esc(p.first)} off ${FULL[day]}</button>
+    <button class="btn ghost" data-act="closesheet">Cancel</button>`;
+  openSheet(html,{kind,ref,pid,day});
+}
+function prayAddSheet(day){
+  const r=rotation()[day].map(x=>x.pid);
+  const pool=[...new Set([...FOCUS,...S.steps.map(s=>s.pid)])].filter(p=>!r.includes(p));
+  const html=`<h3>Add to ${FULL[day]}</h3>
+    ${pool.length?pool.map(p=>`<button class="sopt" data-act="paddp" data-p="${p}"><span style="display:flex;align-items:center;gap:8px;color:var(--ink);font-weight:600;font-size:15px"><span class="dot" style="--pc:${PEOPLE[p].color}"></span>${esc(PEOPLE[p].name)}</span></button>`).join(''):'<p class="sub">Everyone is already on this day.</p>'}
+    <button class="btn ghost" data-act="closesheet">Cancel</button>`;
+  openSheet(html,{day});
+}
+
+/* ---------- sheet + toast ---------- */
+let sheetCtx=null;
+function openSheet(html,ctx){sheetCtx=ctx;$('#sheetBody').innerHTML=html;$('#sheet').hidden=false;}
+function closeSheet(){$('#sheet').hidden=true;sheetCtx=null;}
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,2600);}
+
+function rhythmSheet(pid,type){
+  const p=PEOPLE[pid];
+  const types=type?[type]:['text','pray','meetup'];
+  const html=`<h3>Rhythms for ${esc(p.first)}</h3><p class="sub" style="margin:0">Fills in the steps for you. Replaces any ${type?TYPES[type].label:''} steps already set for ${esc(p.first)}.</p>
+    ${types.map(t=>(RHYTHMS[t]||RHYTHMS._).map(([l,d,days])=>`<button class="sopt" data-act="cad" data-t="${t}" data-days="${days.join(',')}">${l}<span>${d}</span></button>`).join('')).join('')}
+    <button class="btn ghost" data-act="closesheet">Cancel</button>`;
+  openSheet(html,{pid});
+}
+function touchSheet(pid){
+  const p=PEOPLE[pid];
+  const html=()=>`<h3>A light touch for ${esc(p.first)}</h3><p class="sub" style="margin:0">Tap as many as you like.</p>
+    <div class="chips">${['text','pray','meetup','verse','invite'].map(t=>{const n=countType(pid,t);return `<button class="chip ${n?'on':''}" data-tchip="${t}">${TYPES[t].label}${n?`<span class="badge">×${n}</span>`:''}</button>`}).join('')}</div>
+    <button class="btn primary" data-act="touchdone">Done</button>`;
+  openSheet(html(),{pid,html});
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]'); if(!b) return;
+  if(b.tagName==='SELECT'||b.tagName==='FORM') return;
+  const a=b.dataset.act, pid=FOCUS[S.focusIdx];
+  switch(a){
+    case 'start': S.started=true; go(S.screen==='today'&&S.lastScreen?S.lastScreen:'pause'); break;
+    case 'close': S.lastScreen=S.screen; S.screen='today'; render(false); break;
+    case 'home': fresh(); S.screen='today'; render(false); break;
+    case 'restart': fresh(); go('pause'); break;
+    case 'next': next(); break;
+    case 'back': prev(); break;
+    case 'carry': setCarry(b.dataset.c,b.dataset.k); render(); break;
+    case 'keep': {const g=PEOPLE[pid].ghosts[+b.dataset.g];addStep(pid,g.type,{text:g.text,day:g.day});S.dismissed.add(pid+b.dataset.g);render();break;}
+    case 'dismiss': S.dismissed.add(pid+b.dataset.g); render(); break;
+    case 'del': removeRow(b.dataset.id); break;
+    case 'addown': {const s=addStep(pid,'custom');render();setTimeout(()=>{const el=$('#t-'+s.id);el&&el.focus();},0);break;}
+    case 'justpray': S.steps=S.steps.filter(s=>s.pid!==pid); S.justPray.add(pid); render(); toast(`Praying for ${PEOPLE[pid].first} this week`); break;
+    case 'unpray': S.justPray.delete(pid); render(); break;
+    case 'swap': toast('In the app, this opens your people so you can pick who takes this spot.'); break;
+    case 'rhythms': rhythmSheet(pid); break;
+    case 'rem': {const s=S.steps.find(x=>x.id===b.dataset.id);const k=b.dataset.k;s.remOff.has(k)?s.remOff.delete(k):s.remOff.add(k);render();break;}
+    case 'cad': {const p=sheetCtx.pid,t=b.dataset.t;S.steps=S.steps.filter(s=>!(s.pid===p&&s.type===t));b.dataset.days.split(',').map(Number).forEach(d=>addStep(p,t,{day:d}));closeSheet();render();break;}
+    case 'closesheet': closeSheet(); break;
+    case 'skip': swipeOut(-1); break;
+    case 'touch': touchSheet(BEYOND[S.beyondIdx].pid); break;
+    case 'touchdone': {const p=sheetCtx.pid;closeSheet();if(stepsFor(p).length)S.beyondTouched.push(p);S.beyondIdx++;render();break;}
+    case 'redeck': S.beyondIdx=0; render(); break;
+    case 'cap': S.capacity=b.dataset.k; render(); break;
+    case 'move': S.moveOpen=S.moveOpen===b.dataset.id?null:b.dataset.id; render(); break;
+    case 'delstep': S.steps=S.steps.filter(s=>s.id!==b.dataset.id); S.moveOpen=null; render(); break;
+    case 'pname': prayNameSheet(b); break;
+    case 'padd': prayAddSheet(+b.dataset.day); break;
+    case 'pmove': {const c=sheetCtx;prayMove(c.kind,c.ref,+b.dataset.d);closeSheet();render();toast(`${PEOPLE[c.pid].first} moved to ${FULL[+b.dataset.d]}`);break;}
+    case 'palso': {const c=sheetCtx;S.extraPray.push({id:nid(),pid:c.pid,day:+b.dataset.d});closeSheet();render();toast(`${PEOPLE[c.pid].first} added to ${FULL[+b.dataset.d]}`);break;}
+    case 'poff': {const c=sheetCtx;prayMove(c.kind,c.ref,-1);closeSheet();render();break;}
+    case 'paddp': {const c=sheetCtx;S.extraPray.push({id:nid(),pid:b.dataset.p,day:c.day});closeSheet();render();break;}
+  }
+});
+// sheet chip taps (light touch)
+$('#sheetBody').addEventListener('click',e=>{
+  const c=e.target.closest('[data-tchip]'); if(!c||!sheetCtx) return;
+  addStep(sheetCtx.pid,c.dataset.tchip,{src:'beyond'}); $('#sheetBody').innerHTML=sheetCtx.html();
+});
+document.addEventListener('submit',e=>{
+  if(!e.target.matches('[data-act="newp"]')) return; e.preventDefault();
+  const v=$('#newname').value.trim(); if(!v) return;
+  const k='new'+(++S.newCount);
+  PEOPLE[k]={name:v,first:v.split(/\s+/)[0],color:NEWCOLORS[(S.newCount-1)%NEWCOLORS.length]};
+  addStep(k,'pray',{day:0,src:'new'}); render(); toast(`${v} added to Monday's prayers`);
+});
+document.addEventListener('input',e=>{
+  const f=e.target.dataset.f; if(!f) return;
+  const s=S.steps.find(x=>x.id===e.target.dataset.id); if(!s) return;
+  if(f==='text'||f==='loc') s[f]=e.target.value;
+});
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.dataset.f==='day'||t.dataset.f==='time'){const s=S.steps.find(x=>x.id===t.dataset.id);if(!s)return;if(t.dataset.f==='day')s.day=+t.value;else s.time=t.value;render();}
+  if(t.dataset.act==='carryday'){const c=S.carry.find(x=>x.id===t.dataset.c);c.day=+t.value;const s=S.steps.find(x=>x.id===c.stepId);if(s)s.day=c.day;render();}
+  if(t.dataset.act==='moveday'){const s=S.steps.find(x=>x.id===t.dataset.id);s.day=+t.value;S.moveOpen=null;render();toast(`Moved to ${FULL[s.day]}`);}
+});
+
+/* chips: tap adds one, press-and-hold opens rhythms */
+let lp=null,lpFired=false;
+document.addEventListener('pointerdown',e=>{
+  const c=e.target.closest('[data-chip]'); if(!c) return;
+  lpFired=false; clearTimeout(lp);
+  lp=setTimeout(()=>{lpFired=true;if(navigator.vibrate)try{navigator.vibrate(10)}catch(_){};rhythmSheet(FOCUS[S.focusIdx],c.dataset.chip);},500);
+});
+['pointerup','pointercancel','pointerleave'].forEach(ev=>document.addEventListener(ev,e=>{
+  const c=e.target.closest&&e.target.closest('[data-chip]');
+  if(ev==='pointerup'&&c&&!lpFired){clearTimeout(lp);addStep(FOCUS[S.focusIdx],c.dataset.chip);render();}
+  else clearTimeout(lp);
+},true));
+document.addEventListener('keydown',e=>{
+  const c=e.target.closest&&e.target.closest('[data-chip]');
+  if(c&&(e.key==='Enter'||e.key===' ')){e.preventDefault();addStep(FOCUS[S.focusIdx],c.dataset.chip);render();setTimeout(()=>{const n=document.querySelector(`[data-chip="${c.dataset.chip}"]`);n&&n.focus();},0);}
+  if(e.key==='Escape'&&!$('#sheet').hidden) closeSheet();
+});
+document.addEventListener('contextmenu',e=>{if(e.target.closest('[data-chip]'))e.preventDefault();});
+
+/* swipe a step row left to remove */
+let rs=null;
+document.addEventListener('pointerdown',e=>{
+  const r=e.target.closest('.row[data-row]'); if(!r||e.target.closest('input,select,button')) return;
+  rs={el:r,x:e.clientX,y:e.clientY,dx:0};
+});
+document.addEventListener('pointermove',e=>{
+  if(!rs) return; rs.dx=e.clientX-rs.x;
+  if(Math.abs(e.clientY-rs.y)>Math.abs(rs.dx)){rs.el.style.transform='';return;}
+  if(rs.dx<0){rs.el.style.transform=`translateX(${rs.dx}px)`;rs.el.style.opacity=String(1+rs.dx/250);}
+});
+document.addEventListener('pointerup',()=>{
+  if(!rs) return; const {el,dx}=rs; rs=null;
+  if(dx<-90) removeRow(el.dataset.row); else {el.style.transform='';el.style.opacity='';}
+});
+function removeRow(id){S.steps=S.steps.filter(s=>s.id!==id);render();}
+
+/* beyond deck drag */
+function bindDeck(){
+  const c=$('#topcard'); if(!c) return;
+  let sx=null,dx=0;
+  const yes=c.querySelector('.stamp.yes'),no=c.querySelector('.stamp.no');
+  c.addEventListener('pointerdown',e=>{sx=e.clientX;dx=0;c.setPointerCapture(e.pointerId);c.style.transition='none';});
+  c.addEventListener('pointermove',e=>{if(sx===null)return;dx=e.clientX-sx;c.style.transform=`translateX(${dx}px) rotate(${dx/20}deg)`;yes.style.opacity=Math.max(0,dx/90);no.style.opacity=Math.max(0,-dx/90);});
+  const end=()=>{if(sx===null)return;sx=null;c.style.transition='';
+    if(dx>90){c.style.transform='translateX(140%) rotate(12deg)';setTimeout(()=>touchSheet(BEYOND[S.beyondIdx].pid),150);setTimeout(()=>{if(S.screen==='beyond'&&!$('#sheet').hidden)c.style.transform='';},200);}
+    else if(dx<-90) swipeOut(-1);
+    else{c.style.transform='';yes.style.opacity=0;no.style.opacity=0;}};
+  c.addEventListener('pointerup',end);c.addEventListener('pointercancel',end);
+}
+function swipeOut(dir){
+  const c=$('#topcard');
+  if(c&&!reduce){c.style.transform=`translateX(${dir*140}%) rotate(${dir*12}deg)`;setTimeout(()=>{S.beyondIdx++;render();},180);}
+  else{S.beyondIdx++;render();}
+}
+
+/* carry-over */
+function setCarry(id,k){
+  const c=S.carry.find(x=>x.id===id);
+  if(c.stepId){S.steps=S.steps.filter(s=>s.id!==c.stepId);c.stepId=null;}
+  c.choice=c.choice===k?null:k;
+  if(c.choice==='carry') c.stepId=addStep(c.pid,'custom',{text:c.title,day:0,src:'carry'}).id;
+  if(c.choice==='resched') c.stepId=addStep(c.pid,'custom',{text:c.title,day:c.day,src:'carry'}).id;
+}
+
+/* nav */
+function next(){
+  if(S.screen==='focus'&&S.focusIdx<4){S.focusIdx++;render(false);return;}
+  const i=SEQ.indexOf(S.screen); if(i<SEQ.length-1) go(SEQ[i+1]);
+}
+function prev(){
+  if(S.screen==='focus'&&S.focusIdx>0){S.focusIdx--;render(false);return;}
+  const i=SEQ.indexOf(S.screen);
+  if(i<=0){S.lastScreen=S.screen;S.screen='today';render(false);return;}
+  if(SEQ[i-1]==='focus') S.focusIdx=4;
+  go(SEQ[i-1]);
+}
+
+render(false);
+</script>
