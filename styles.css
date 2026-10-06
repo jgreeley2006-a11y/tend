@@ -351,3 +351,22 @@ select.tw-sel{width:auto;padding:6px 10px;min-height:0}
 .tw-sopt .muted{font-weight:500;font-size:13px}
 .tw-fields{gap:8px 10px}
 .tw-fields input[type="time"].t{width:128px}
+/* Beyond the Five */
+.tw-deck{position:relative;height:290px}
+.tw-deck-card{position:absolute;inset:0;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:18px;display:flex;flex-direction:column;gap:10px;touch-action:pan-y;-webkit-user-select:none;user-select:none;box-shadow:var(--shadow);overflow:hidden}
+.tw-deck-card.under{transform:scale(.95) translateY(10px);opacity:.6;pointer-events:none}
+.tw-deck-card.fam{border-color:var(--fam)}
+.tw-deck-card p{margin:0;color:var(--ink-2);font-size:14.5px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.tw-deck-card .tw-last{margin-top:auto;font-size:13px;color:var(--ink-3)}
+.tw-deck-name{font-size:17px}
+.tw-ctag{display:inline-flex;align-items:center;gap:4px;margin-top:3px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
+.tw-ctag .ic{width:13px;height:13px}
+.tw-deck-card.fam .tw-ctag{background:var(--fam-soft);color:var(--fam)}
+.tw-why{font-family:var(--serif);font-size:22px;font-weight:600;line-height:1.2}
+.tw-stamp{position:absolute;top:16px;right:16px;font-weight:800;font-size:13px;letter-spacing:.06em;padding:3px 10px;border-radius:8px;border:2px solid;opacity:0;text-transform:uppercase;pointer-events:none}
+.tw-stamp.yes{color:var(--accent);border-color:var(--accent)}
+.tw-stamp.no{color:var(--ink-3);border-color:var(--ink-3);right:auto;left:16px}
+.tw-deck-btns .btn{flex:1}
+.tw-newp .t{flex:1;min-width:0}
+.tw-newp .btn{flex:none}
+.tw-pchip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 10px 3px 3px;font-size:13px;font-weight:600}

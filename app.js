@@ -513,7 +513,7 @@ function render(){
   $("#nav").hidden = !signedIn; $("#fab").hidden = !signedIn;
   if (S.mode === "loading"){ app.innerHTML = `<div class="loading">Opening your list…</div>`; return; }
   if (S.mode === "signin"){ app.innerHTML = viewSignIn(); return; }
-  if (S.tw){ app.innerHTML = viewPlanner(); $("#nav").hidden = true; $("#fab").hidden = true; document.body.dataset.planner = "1"; syncCircle("reach"); return; }
+  if (S.tw){ app.innerHTML = viewPlanner(); $("#nav").hidden = true; $("#fab").hidden = true; document.body.dataset.planner = "1"; syncCircle("reach"); if (S.tw.screen === "beyond") twBindDeck(); return; }
   delete document.body.dataset.planner;
   const { tab, personId } = S.ui;
   if (personId && S.people.has(personId)) app.innerHTML = viewPerson(S.people.get(personId));
@@ -879,6 +879,89 @@ function twSwapSheet(pid){
     <button class="btn ghost" data-act="close-sheet">Cancel</button></div>`);
 }
 
+/* Beyond the Five: up to 5 other people the app noticed, as a swipeable deck */
+function twBeyondList(){
+  const p = twPlan(), days = twDays(), t = today(), out = [];
+  const fresh = new Set(p.newPeople || []);
+  const cands = realPeople().filter(q => !q.focus && !fresh.has(q.id));
+  const reasons = q => {
+    const logs = (q.logs || []).length; const since = sinceContact(q);
+    const d = twDatesInWeek(q)[0]; if (d) return [1, `${d.label} ${wkLong(d.date)}`];
+    if (!logs && q.metOn && daysBetween(q.metOn, t) <= 30) return [2, `Met ${agoText(q.metOn)}, no follow-up yet`];
+    if (isFam(q) && !logs) return [3, "You haven't really met yet"];
+    if (since !== null && since >= 30) return [4, `${since} days since you talked`];
+    if ((q.prayers || []).some(r => !r.answeredAt)) return [5, "Open prayer request"];
+    return null;
+  };
+  cands.forEach(q => { const r = reasons(q); if (r) out.push({ person:q, rank:r[0], why:r[1] }); });
+  return out.sort((a, b) => a.rank - b.rank).slice(0, 5);
+}
+function twDeckCard(c, cls){
+  const q = c.person; const last = twLastLog(q);
+  const detail = q.note || (last && last.shared) || [q.howMet, q.relationship].filter(Boolean).join(" · ");
+  const lastLine = lastContactLabel(q) || (isFam(q) || !q.metOn ? "Never talked" : "Met " + fmtDate(q.metOn));
+  return `<div class="tw-deck-card ${cls}${isFam(q) ? " fam" : ""}"${cls === "front" ? ` id="tw-topcard"` : ""}>
+    <span class="tw-stamp yes">Add</span><span class="tw-stamp no">Skip</span>
+    <div class="row">${twAvatar(q)}<div class="grow"><b class="tw-deck-name">${esc(q.name)}</b><div><span class="tw-ctag">${isFam(q) ? ICON_HOME + "Church family" : "Reaching"}</span></div></div></div>
+    <div class="tw-why">${esc(c.why)}</div>
+    ${detail ? `<p>${esc(detail)}</p>` : ""}
+    <p class="tw-last">${esc(lastLine)}</p>
+  </div>`;
+}
+function twBeyondScreen(){
+  const p = twPlan(); const list = twBeyondList(); const idx = S.tw.beyondIdx || 0;
+  const touched = list.filter(c => twStepsFor(c.person.id).length).map(c => first(c.person.name));
+  let deck;
+  if (!list.length) deck = `<div class="card empty">No one else stands out this week. Add someone below if God brings them to mind.</div>`;
+  else if (idx < list.length) deck = `<div class="tw-deck">${list[idx + 1] ? twDeckCard(list[idx + 1], "under") : ""}${twDeckCard(list[idx], "front")}</div>
+      <div class="row tw-deck-btns"><button class="btn ghost" data-act="tw-skip">Not this week</button><button class="btn" data-act="tw-touch" data-tw-pid="${esc(list[idx].person.id)}">Add a touch</button></div>
+      <p class="small muted" style="text-align:center;margin:0">Swipe right to add a touch, left to skip · ${idx + 1} of ${list.length}</p>`;
+  else deck = `<div class="card stack"><b>That's everyone the app surfaced.</b><span class="small muted">${touched.length ? `You added touches for ${esc(touched.join(", "))}.` : "You skipped them all this week. That's okay."}</span>
+      <div><button class="linkbtn" data-act="tw-redeck">Go through them again</button></div></div>`;
+  const added = (p.newPeople || []).map(twP).filter(Boolean);
+  return `<div class="stack-lg">
+    <div><div class="eyebrow">Beyond the Five</div><h2>Who else is on your heart?</h2><p class="muted" style="margin:6px 0 0">A few people the app noticed. Light touches only.</p></div>
+    <div class="stack">${deck}</div>
+    <div class="stack">
+      <div><h3>Did God bring anyone new to mind?</h3><p class="small muted" style="margin:4px 0 0">Add them and they'll go on your prayer list this week.</p></div>
+      <form class="row tw-newp" data-form="tw-newp" autocomplete="off"><input class="t" id="tw-newname" placeholder="Their name" aria-label="Their name"><button class="btn">Add</button></form>
+      ${added.length ? `<div class="row wrap" style="gap:8px">${added.map(q => { const s = twStepsFor(q.id).find(x => x.type === "pray");
+        return `<span class="tw-pchip">${twAvatar(q, true)}${esc(q.name)}${s ? " · Pray " + esc(wkShort(s.day)) : ""}</span>`; }).join("")}</div>` : ""}
+    </div>
+  </div>`;
+}
+function twTouchSheet(pid){
+  const q = twP(pid); if (!q) return;
+  openSheet(`<div class="stack"><h2>A light touch for ${esc(first(q.name))}</h2><p class="small muted" style="margin:0">Tap as many as you like.</p>
+    <div class="chips wrap tw-chips">${twChips(pid, ["text","pray","meetup","verse","invite"], "tw-touch-chip")}</div>
+    ${twStepsFor(pid).length ? `<p class="small muted" style="margin:0">${esc(twStepsFor(pid).map(s => TW_TYPES[s.type].label + " " + wkShort(s.day)).join(" · "))}. Fine-tune days in Shape the week.</p>` : ""}
+    <button class="btn" data-act="tw-touch-done">Done</button></div>`);
+}
+function twDeckAdvance(dir){
+  const c = $("#tw-topcard");
+  const nextCard = () => { S.tw.beyondIdx = (S.tw.beyondIdx || 0) + 1; twGo("beyond"); };
+  if (c && !reduceMotion()){ c.style.transition = "transform .18s"; c.style.transform = `translateX(${dir * 140}%) rotate(${dir * 12}deg)`; setTimeout(nextCard, 170); }
+  else nextCard();
+}
+function twBindDeck(){
+  const c = $("#tw-topcard"); if (!c) return;
+  const yes = c.querySelector(".tw-stamp.yes"), no = c.querySelector(".tw-stamp.no");
+  let sx = null, dx = 0;
+  c.addEventListener("pointerdown", e => { sx = e.clientX; dx = 0; try { c.setPointerCapture(e.pointerId); } catch(_){} c.style.transition = "none"; });
+  c.addEventListener("pointermove", e => { if (sx === null) return; dx = e.clientX - sx; c.style.transform = `translateX(${dx}px) rotate(${dx / 20}deg)`; yes.style.opacity = Math.max(0, dx / 90); no.style.opacity = Math.max(0, -dx / 90); });
+  const end = () => { if (sx === null) return; sx = null; c.style.transition = "";
+    if (dx > 90){ c.style.transform = ""; yes.style.opacity = 0; twTouchSheet(twBeyondList()[S.tw.beyondIdx || 0]?.person.id); }
+    else if (dx < -90) twDeckAdvance(-1);
+    else { c.style.transform = ""; yes.style.opacity = 0; no.style.opacity = 0; } };
+  c.addEventListener("pointerup", end); c.addEventListener("pointercancel", end);
+}
+function twAddNewPerson(name){
+  const p = twPlan(); const q = newPerson(name); savePerson(q);
+  (p.newPeople ||= []).push(q.id);
+  const day = twOpenDays()[0]; twAddStep(q.id, "pray", { day });
+  render(); toast(`${name} added to ${wkLong(day)}'s prayers`);
+}
+
 // Selects and pickers inside the planner. Returns true if it handled the change.
 function twChange(el){
   const d = el.dataset; const p = twPlan(); if (!p) return false;
@@ -922,6 +1005,11 @@ function twClick(act, d, el){
       S.tw.focusIdx = Math.max(0, twFocus().findIndex(q => q.id === to.id)); twGo("focus", S.tw.focusIdx);
       toast(`${first(to.name)} is in your Focus 5`); return true; }
     case "tw-to-people": twClose(); go("people"); return true;
+    case "tw-skip": twDeckAdvance(-1); return true;
+    case "tw-touch": twTouchSheet(pid); return true;
+    case "tw-touch-chip": twAddStep(pid, d.twType); twTouchSheet(pid); return true;
+    case "tw-touch-done": closeSheet(); twDeckAdvance(1); return true;
+    case "tw-redeck": S.tw.beyondIdx = 0; twGo("beyond"); return true;
   }
   return false;
 }
@@ -955,6 +1043,7 @@ document.addEventListener("pointermove", e => {
 const TW_SCREENS = {
   back: () => twLookBack(),
   focus: () => twFocusScreen(),
+  beyond: () => twBeyondScreen(),
   pause: () => `<div class="tw-pause">
       <div class="eyebrow">Before you plan</div>
       <div><blockquote class="tw-verse">“Walk in wisdom toward them that are without, redeeming the time.”</blockquote><div class="vref muted">Colossians 4:5</div></div>
@@ -1705,6 +1794,7 @@ document.addEventListener("submit", e => {
   e.preventDefault();
   const f = e.target; const kind = f.dataset.form; const v = id => ($("#"+id)?.value || "").trim();
   if (kind === "auth"){ const em = v("si-email"), pw = $("#si-pass").value; if (em && pw) doAuth(em, pw); return; }
+  if (kind === "tw-newp"){ const name = v("tw-newname"); if (name && S.tw) twAddNewPerson(name); return; }
   if (kind === "add"){
     const name = v("ad-name"); if (!name) return;
     const dupBox = $("#dup");
