@@ -90,6 +90,63 @@ function shiftReminders(list, from, to, now = new Date()){
   const delta = (toDT(to.due, to.time) - toDT(from.due, from.time)) / 60000;
   return sortRems((list || []).map(r => ({ ...r, ...fromDT(addMin(toDT(r.date, r.time), delta)) })).filter(r => toDT(r.date, r.time) > now));
 }
+/* ---------- Tend the Week: week math, saved plans, person colors ---------- */
+// Weeks run Monday–Sunday in the user's time zone (meta.timezone). Days are "YYYY-MM-DD" strings.
+// When the Today card invites you to plan: Sunday 12:00 PM through the end of Monday. dow: 0 = Monday … 6 = Sunday.
+const PLAN_WINDOW = { from: { dow: 6, hour: 12 }, to: { dow: 0, hour: 24 } };
+const WEEK_PLANS_KEEP = 12;
+function userTz(){
+  const tz = S.settings.tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return tz; } catch(_) { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+}
+// The wall-clock date and time right now in the user's time zone
+function tzNow(now = new Date()){
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: userTz(), hourCycle:"h23", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" })
+    .formatToParts(now).map(x => [x.type, x.value]));
+  return { date: p.year + "-" + p.month + "-" + p.day, hour: +p.hour % 24, minute: +p.minute };
+}
+const dowOf = s => (new Date(s + "T12:00:00").getDay() + 6) % 7;
+const mondayOf = s => addDays(s, -dowOf(s));
+// Planning Mon–Fri plans this week; planning on Sat/Sun plans the coming week.
+const planWeekOf = (s = tzNow().date) => dowOf(s) >= 5 ? addDays(mondayOf(s), 7) : mondayOf(s);
+const weekDates = weekOf => [0,1,2,3,4,5,6].map(i => addDays(weekOf, i));
+function inPlanWindow(n = tzNow()){
+  const d = dowOf(n.date), h = n.hour + n.minute / 60, { from, to } = PLAN_WINDOW;
+  const after = d > from.dow || (d === from.dow && h >= from.hour);
+  const before = d < to.dow || (d === to.dow && h < to.hour);
+  return from.dow <= to.dow ? after && before : after || before; // the window may wrap past Sunday
+}
+// Saved plans live in meta.weekPlans, keyed by the week's Monday. Missing = no plans.
+// Fill in defaults without touching anything we don't recognize.
+function fillPlan(p, weekOf){
+  const now = new Date().toISOString();
+  p.weekOf ||= weekOf; p.createdAt ||= now; p.updatedAt ||= now;
+  if (!["light","normal","full"].includes(p.capacity)) p.capacity = "normal";
+  ["steps","justPray","dismissedSuggestions","carry"].forEach(k => { if (!Array.isArray(p[k])) p[k] = []; });
+  if (!p.rotation || typeof p.rotation !== "object" || Array.isArray(p.rotation)) p.rotation = {};
+  return p;
+}
+function weekPlan(weekOf, create){
+  const all = S.meta.weekPlans && typeof S.meta.weekPlans === "object" ? S.meta.weekPlans : null;
+  if (!(all && all[weekOf]) && !create) return null;
+  if (!all) S.meta.weekPlans = {};
+  return S.meta.weekPlans[weekOf] = fillPlan(S.meta.weekPlans[weekOf] || {}, weekOf);
+}
+function saveWeekPlan(p){
+  clearTimeout(saveWeekPlanSoon.t); saveWeekPlanSoon.t = null;
+  p.updatedAt = new Date().toISOString();
+  const all = S.meta.weekPlans || (S.meta.weekPlans = {});
+  all[p.weekOf] = p;
+  Object.keys(all).sort().reverse().slice(WEEK_PLANS_KEEP).forEach(k => delete all[k]);
+  saveMeta();
+}
+// Drafts save about a second after the last change, and right away if the app is closed.
+function saveWeekPlanSoon(p){ clearTimeout(saveWeekPlanSoon.t); saveWeekPlanSoon.p = p; saveWeekPlanSoon.t = setTimeout(() => saveWeekPlan(p), 1000); }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && saveWeekPlanSoon.t) saveWeekPlan(saveWeekPlanSoon.p); });
+// A steady color for each person (same color every time), readable in light and dark mode.
+const PERSON_COLORS = ["#2A9D8F","#C9822A","#3D7CC9","#C4577A","#7A8B2E","#D9703F","#2F9AC2","#8A63C9","#6C7A89","#9A6B4A"];
+function personColor(id){ let h = 2166136261; for (const c of String(id)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return PERSON_COLORS[(h >>> 0) % PERSON_COLORS.length]; }
+
 const taskTitle = t => (isMeetup(t) ? ICON_CAL : "") + esc(t.title);
 const meetupWhen = t =>(t.time ? fmtTime(t.time) : "") + (t.location ? (t.time ? " · " : "") + t.location : "");
 
