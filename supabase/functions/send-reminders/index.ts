@@ -65,6 +65,23 @@ function whenWord(meetDate: string, fromDate: string) {
   return meetDate;
 }
 const isMeetup = (t: any) => t?.kind === "meetup";
+// Monday of the week containing a "YYYY-MM-DD" date
+function mondayOf(date: string) {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+// Who to pray for today: a finished Tend the Week plan's rotation for today, otherwise the Focus 5.
+// Same rule as prayToday() on the Today screen.
+export function prayToday(people: any[], meta: any, today: string) {
+  const plan = meta?.weekPlans?.[mondayOf(today)];
+  if (plan?.completedAt && plan.rotation && typeof plan.rotation === "object") {
+    const ids: string[] = Array.isArray(plan.rotation[today]) ? plan.rotation[today] : [];
+    const byId = new Map(people.map(p => [p.id, p]));
+    return ids.map(id => byId.get(id)).filter(Boolean);
+  }
+  return people.filter(p => p.focus);
+}
 
 // ---------- the message: same rules as the Today screen ----------
 export function buildMessage(people: any[], meta: any, today: string) {
@@ -86,14 +103,15 @@ export function buildMessage(people: any[], meta: any, today: string) {
     const since = last ? days(last, today) : null;
     if (since === null || since >= 14) steps.push(`Check in with ${first(p.name)}`);
   }
+  const pray = prayToday(people, meta, today);
   if (steps.length) {
     const shown = steps.slice(0, 3);
     return {
       title: steps.length === 1 ? "1 next step today" : `${steps.length} next steps today`,
-      body: shown.join("\n") + (focus.length ? `\nPray for ${focus.map(p => first(p.name)).join(", ")}` : ""),
+      body: shown.join("\n") + (pray.length ? `\nPray for ${pray.map(p => first(p.name)).join(", ")}` : ""),
     };
   }
-  if (focus.length) return { title: "Pray today", body: `${focus.map(p => first(p.name)).join(", ")}. Tap to open your prayer list.` };
+  if (pray.length) return { title: "Pray today", body: `${pray.map(p => first(p.name)).join(", ")}. Tap to open your prayer list.` };
   return null; // nothing to say: stay quiet
 }
 

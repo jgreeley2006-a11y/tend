@@ -554,7 +554,6 @@ function viewToday(){
   const quiet = isQuiet();
   const steps = todaySteps();
   const shown = steps.slice(0,3);
-  const focus = focusPeople();
   const ws = weekStart(); const t = today();
   let prayedN=0, convN=0, mealN=0, invN=0;
   people().forEach(p => {
@@ -580,10 +579,11 @@ function viewToday(){
         </div>`).join("")}</div>` : `<div class="empty">Nothing pressing today. Pray for your Focus 5 and enjoy the people God put around you.</div>`}</div>
     </section>`}
     ${viewWeek()}
-    <section>
+    ${(pt => pt.plan && !pt.list.length ? "" : `<section>
       <div class="section-head"><h2>Pray today</h2><button class="linkbtn" data-tab-go="prayer">Prayer list</button></div>
-      ${focus.length ? `<div class="pray-list">${focus.map(p => prayRow(p)).join("")}</div>` : `<div class="card empty">Star up to 5 people to pray for them here each day.</div>`}
-    </section>
+      ${pt.list.length ? `<div class="pray-list">${pt.list.map(p => prayRow(p)).join("")}</div>` : `<div class="card empty">Star up to 5 people to pray for them here each day.</div>`}
+      ${pt.plan ? `<p class="small muted" style="margin:8px 0 0">From your prayer rotation for this week.</p>` : ""}
+    </section>`)(prayToday())}
     <section>
       <div class="section-head"><h2>This week</h2><span class="small muted">Faithfulness, not results</span></div>
       <div class="tally"><div><b>${prayedN}</b><span>prayers</span></div><div><b>${convN}</b><span>conversations</span></div><div><b>${mealN}</b><span>meals &amp; service</span></div><div><b>${invN}</b><span>invites</span></div></div>
@@ -1209,6 +1209,14 @@ const TW_SCREENS = {
       <p class="tw-prayer">Take a moment to pray, asking: <b>“Lord, who do you want me to love this week?”</b></p>
     </div>`
 };
+
+// Who to pray for today. A finished plan for this week sets it (its prayer rotation);
+// otherwise it's your Focus 5. send-reminders' buildMessage() uses the same rule.
+function prayToday(){
+  const t = today(); const plan = weekPlan(mondayOf(t));
+  if (plan && plan.completedAt) return { plan:true, list: (Array.isArray(plan.rotation[t]) ? plan.rotation[t] : []).map(id => S.people.get(id)).filter(p => p && !p.example) };
+  return { plan:false, list: focusPeople() };
+}
 
 /* Week ahead: the next 7 days at a glance */
 function weekAhead(){
