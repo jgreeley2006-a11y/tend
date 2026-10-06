@@ -962,10 +962,51 @@ function twAddNewPerson(name){
   render(); toast(`${name} added to ${wkLong(day)}'s prayers`);
 }
 
+/* Shape the week: everything planned, day by day */
+const TW_CAP = { light:3, normal:5, full:8 };
+// Steps plus anything carried over from last week, each with the day it lands on
+function twWeekItems(){
+  const p = twPlan(); const open = twOpenDays(); const items = [];
+  p.steps.forEach(s => { const q = twP(s.personId); if (q) items.push({ key:s.id, day:s.day, person:q, title: s.title || TW_TYPES[s.type].label, kind: TW_TYPES[s.type].label, time:s.time }); });
+  p.carry.forEach(c => { if (c.choice === "letgo") return; const ref = twFindTask(c.taskId); if (!ref || ref.t.done) return;
+    items.push({ key:"c:" + c.taskId, day: c.choice === "carry" ? open[0] : c.day, person: ref.owner, title: ref.t.title, kind:"Carried over", time: ref.t.time || ref.t.remindAt }); });
+  return items.sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+}
+function twWeekScreen(){
+  const p = twPlan(); const days = twDays(); const open = twOpenDays(); const lim = TW_CAP[p.capacity] || 5;
+  const items = twWeekItems(); const byDay = Object.fromEntries(days.map(d => [d, items.filter(i => i.day === d)]));
+  const nPeople = new Set(items.map(i => i.person ? i.person.id : "-")).size;
+  const heavy = days.filter(d => byDay[d].length > lim);
+  const dot = i => `<i style="--pc:${i.person ? personColor(i.person.id) : "var(--ink-3)"}"></i>`;
+  return `<div class="stack-lg">
+    <div><div class="eyebrow">${esc(fmtDate(days[0]))}–${esc(fmtDate(days[6]))}</div><h2>Shape the week</h2>
+      <p class="muted" style="margin:6px 0 0">Tending ${nPeople} ${nPeople === 1 ? "person" : "people"} with ${items.length} next step${items.length === 1 ? "" : "s"}. Tap a step to move it.</p></div>
+    <div class="stack" style="gap:6px"><span class="small muted">How much room do you have this week?</span>
+      <div class="circles tw-cap" role="radiogroup" aria-label="How much room this week">${["light","normal","full"].map(k => `<button role="radio" aria-checked="${p.capacity === k}" data-act="tw-cap" data-tw-k="${k}">${k[0].toUpperCase() + k.slice(1)}</button>`).join("")}</div></div>
+    <div class="tw-strip">${days.map(d => `<div class="tw-day${byDay[d].length > lim ? " heavy" : ""}${open.includes(d) ? "" : " past"}"><small>${esc(wkShort(d))}</small><b>${byDay[d].length}</b><span class="dots">${byDay[d].slice(0, 8).map(dot).join("")}</span></div>`).join("")}</div>
+    ${heavy.map(d => `<div class="banner info">${esc(wkLong(d))} looks heavy (${byDay[d].length} steps). Move something?</div>`).join("")}
+    ${!items.length ? `<p class="muted" style="margin:0">No next steps yet. Go back to your Focus 5 to add some.</p>` : ""}
+    <div class="stack">${days.map(d => `<div class="tw-dgroup"><div class="wk-day">${esc(wkLong(d))} <span>${esc(fmtDate(d))}</span></div>
+      ${byDay[d].length ? byDay[d].map(i => `<button class="tw-item" data-act="tw-move" data-tw-key="${esc(i.key)}"><span class="tw-dot" style="--pc:${i.person ? personColor(i.person.id) : "var(--ink-3)"}"></span>
+          <span class="grow"><b>${esc(i.title)}</b><span class="meta">${esc([i.person ? first(i.person.name) : "", i.kind, i.time ? fmtTime(i.time) : ""].filter(Boolean).join(" · "))}</span></span></button>
+        ${S.tw.moveOpen === i.key ? `<div class="row wrap tw-movebox">Move to <select class="t tw-sel" data-tw-moveday="${esc(i.key)}">${twDayOptions(i.day)}</select><button class="linkbtn danger" data-act="tw-move-del" data-tw-key="${esc(i.key)}">Remove</button></div>` : ""}`).join("")
+        : `<p class="small muted" style="margin:2px 0 6px">${open.includes(d) ? "Open" : "Past"}</p>`}</div>`).join("")}</div>
+  </div>`;
+}
+// Move or remove a step (or a carried-over task) from Shape the week
+function twMoveItem(key, day){
+  const p = twPlan();
+  if (key.startsWith("c:")){ const c = p.carry.find(x => x.taskId === key.slice(2)); if (!c) return;
+    if (day){ c.choice = "resched"; c.day = day; } else p.carry = p.carry.filter(x => x !== c); }
+  else { const s = p.steps.find(x => x.id === key); if (!s) return; if (day) s.day = day; else p.steps = p.steps.filter(x => x !== s); }
+  S.tw.moveOpen = null; twSave(); render();
+}
+
 // Selects and pickers inside the planner. Returns true if it handled the change.
 function twChange(el){
   const d = el.dataset; const p = twPlan(); if (!p) return false;
   if (d.twCarryday){ const c = p.carry.find(x => x.taskId === d.twCarryday); if (c){ c.day = el.value; twSave(); render(); } return true; }
+  if (d.twMoveday){ const day = el.value; twMoveItem(d.twMoveday, day); toast("Moved to " + wkLong(day)); return true; }
   if (d.twSid && (d.twF === "day" || d.twF === "time")){ const s = p.steps.find(x => x.id === d.twSid); if (s){ s[d.twF] = el.value; twSave(); render(); } return true; }
   return false;
 }
@@ -1010,6 +1051,9 @@ function twClick(act, d, el){
     case "tw-touch-chip": twAddStep(pid, d.twType); twTouchSheet(pid); return true;
     case "tw-touch-done": closeSheet(); twDeckAdvance(1); return true;
     case "tw-redeck": S.tw.beyondIdx = 0; twGo("beyond"); return true;
+    case "tw-cap": p.capacity = d.twK; twSave(); render(); return true;
+    case "tw-move": S.tw.moveOpen = S.tw.moveOpen === d.twKey ? null : d.twKey; render(); return true;
+    case "tw-move-del": twMoveItem(d.twKey, null); return true;
   }
   return false;
 }
@@ -1044,6 +1088,7 @@ const TW_SCREENS = {
   back: () => twLookBack(),
   focus: () => twFocusScreen(),
   beyond: () => twBeyondScreen(),
+  week: () => twWeekScreen(),
   pause: () => `<div class="tw-pause">
       <div class="eyebrow">Before you plan</div>
       <div><blockquote class="tw-verse">“Walk in wisdom toward them that are without, redeeming the time.”</blockquote><div class="vref muted">Colossians 4:5</div></div>
