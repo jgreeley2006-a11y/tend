@@ -260,6 +260,12 @@ const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platfo
 const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 function b64ToUint8(b64){ const pad = "=".repeat((4 - b64.length % 4) % 4); const s = atob((b64 + pad).replace(/-/g,"+").replace(/_/g,"/")); return Uint8Array.from([...s].map(c => c.charCodeAt(0))); }
+// Does this push subscription use the server key in config.js? (true if the browser can't tell us)
+function sameServerKey(sub){
+  const k = sub.options && sub.options.applicationServerKey; if (!k) return true;
+  const a = new Uint8Array(k), b = b64ToUint8(window.TEND_CONFIG.VAPID_PUBLIC_KEY);
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
 
 async function enableNotifications(){
   try {
@@ -271,6 +277,11 @@ async function enableNotifications(){
     if (!reg) reg = await navigator.serviceWorker.register("sw.js");
     reg = await Promise.race([navigator.serviceWorker.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("The app's background worker didn't start. Close Tend fully and open it again.")), 10000))]);
     let sub = await reg.pushManager.getSubscription();
+    // A subscription made with an older server key can't receive pushes any more; replace it.
+    if (sub && !sameServerKey(sub)){
+      await sb.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+      await sub.unsubscribe().catch(() => {}); sub = null;
+    }
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(window.TEND_CONFIG.VAPID_PUBLIC_KEY) });
     const json = sub.toJSON();
     const { error } = await sb.from("push_subscriptions").upsert({ endpoint: json.endpoint, user_id: USER.id, subscription: json });
