@@ -753,15 +753,208 @@ function twLookBack(){
   </div>`;
 }
 
+/* Steps: one planned next step for one person on one day */
+const TW_CHIPS = ["text","meetup","invite","verse","drop","pray"];
+const TW_RHYTHMS = {
+  text:   [["Text twice this week","Mon · Thu",[0,3]], ["Text three times","Mon · Wed · Fri",[0,2,4]]],
+  pray:   [["Pray daily","Every day",[0,1,2,3,4,5,6]], ["Every other day","Mon · Wed · Fri · Sun",[0,2,4,6]], ["Twice this week","Tue · Fri",[1,4]]],
+  meetup: [["Two meetups","Tue · Sat",[1,5]]],
+  _:      [["Twice this week","Tue · Fri",[1,4]]]
+};
+const TW_REM = { prep:"Night before", dayof:"Day of", followup:"Follow-up", custom:"Reminder" };
+const twStepsFor = pid => twPlan().steps.filter(s => s.personId === pid);
+// First one of a type goes on its usual day; each repeat lands 3 days later, or on the first day that type isn't used.
+function twDefaultDay(pid, type){
+  const days = twDays(), open = twOpenDays();
+  const same = twStepsFor(pid).filter(s => s.type === type).map(s => s.day).sort();
+  if (!same.length){ const d = days[TW_TYPES[type].def]; return open.includes(d) ? d : open[0]; }
+  const n = addDays(same[same.length - 1], 3);
+  if (n <= days[6] && open.includes(n)) return n;
+  return open.find(d => !same.includes(d)) || same[same.length - 1];
+}
+function twAddStep(pid, type, o = {}){
+  const person = twP(pid); const p = twPlan();
+  const s = { id: uid("s"), personId: pid, type, title: o.title ?? TW_TYPES[type].title(first(person ? person.name : "")),
+    day: o.day || twDefaultDay(pid, type), time: o.time ?? (type === "meetup" ? "09:00" : ""), location: "", removedReminders: [] };
+  p.steps.push(s); p.justPray = p.justPray.filter(x => x !== pid); twSave(); return s;
+}
+function twRemoveStep(id){ const p = twPlan(); p.steps = p.steps.filter(s => s.id !== id); twSave(); }
+const twStepRems = s => s.type === "meetup" && s.day && s.time ? defaultReminders(s.day, s.time) : [];
+// A date (birthday etc.) that falls inside the plan week, including yearly ones
+function twDatesInWeek(person){
+  const days = twDays(), out = [];
+  (person.dates || []).forEach(d => {
+    if (!d.date) return;
+    const cands = d.yearly ? [...new Set([days[0].slice(0, 4), days[6].slice(0, 4)])].map(y => y + d.date.slice(4)) : [d.date];
+    cands.filter(c => c >= days[0] && c <= days[6]).forEach(c => out.push({ id: d.id, label: d.label, date: c }));
+  });
+  return out;
+}
+const twLastLog = person => [...(person.logs || [])].sort((a, b) => b.at.localeCompare(a.at))[0] || null;
+const lcFirst = s => String(s || "").replace(/^./, c => c.toLowerCase());
+// Up to 3 gentle suggestions from what you know about them
+function twSuggestions(person){
+  const p = twPlan(), f = first(person.name), days = twDays(), open = twOpenDays(), out = [];
+  const add = (key, type, title, day) => { const k = person.id + "|" + key; if (!p.dismissedSuggestions.includes(k) && !out.some(x => x.key === k)) out.push({ key:k, type, title, day: open.includes(day) ? day : open[0] }); };
+  twDatesInWeek(person).forEach(d => { const bday = /birthday/i.test(d.label);
+    add("date-text-" + d.id + d.date, "text", bday ? "Happy birthday text" : `Text ${f} about ${lcFirst(d.label)}`, d.date);
+    add("date-drop-" + d.id + d.date, "drop", bday ? "Drop off a birthday card" : `Drop off a card for ${lcFirst(d.label)}`, d.date); });
+  (person.prayers || []).filter(r => !r.answeredAt).forEach(r => add("prayer-" + r.id, "text", `Ask how ${lcFirst(r.text)} is going`, days[0]));
+  const since = sinceContact(person); if (since !== null && since > 14) add("checkin", "text", `Check in with ${f}`, days[0]);
+  const lastMeet = (person.tasks || []).filter(t => isMeetup(t) && t.due).map(t => t.due).sort().pop();
+  const planned = twStepsFor(person.id).some(s => s.type === "meetup");
+  if (!planned && (!lastMeet || daysBetween(lastMeet, today()) > 30)) add("coffee", "meetup", `Coffee with ${f}`, days[5]);
+  return out.slice(0, 3);
+}
+function twRow(s){
+  const meet = s.type === "meetup"; const rems = twStepRems(s); const off = s.removedReminders || [];
+  return `<div class="tw-row" data-tw-row="${esc(s.id)}">
+    <div class="row"><span class="tw-tag ${s.type}">${esc(TW_TYPES[s.type].label)}</span>
+      <input class="tw-title" id="tw-t-${esc(s.id)}" data-tw-sid="${esc(s.id)}" data-tw-f="title" value="${esc(s.title)}" placeholder="What's the step?" aria-label="Step">
+      <button class="iconbtn-sm" data-act="tw-del" data-tw-sid="${esc(s.id)}" aria-label="Remove step">×</button></div>
+    <div class="row wrap tw-fields">
+      <select class="t tw-sel" aria-label="Day" data-tw-sid="${esc(s.id)}" data-tw-f="day">${twDayOptions(s.day)}</select>
+      ${s.type === "pray" ? "" : `<label>${meet ? "Starts" : "Remind at"} <input class="t tw-time" type="time" data-tw-sid="${esc(s.id)}" data-tw-f="time" value="${esc(s.time || "")}"></label>`}
+      ${meet ? `<label class="tw-where">Where <input class="t" data-tw-sid="${esc(s.id)}" data-tw-f="location" value="${esc(s.location || "")}" placeholder="Optional"></label>` : ""}
+    </div>
+    ${meet && rems.length ? `<div class="tw-rems">${rems.map(r => { const isOff = off.includes(r.type);
+      return `<span class="tw-rem${isOff ? " off" : ""}">${esc(TW_REM[r.type] || "Reminder")} · ${esc(fmtRem(r))}<button data-act="tw-rem" data-tw-sid="${esc(s.id)}" data-tw-k="${r.type}" aria-label="${isOff ? "Restore" : "Remove"} reminder">${isOff ? "↺" : "×"}</button></span>`; }).join("")}</div>` : ""}
+    ${meet && !s.time ? `<span class="hint">Pick a start time and Tend will set its reminders.</span>` : ""}
+  </div>`;
+}
+function twChips(pid, types, act){
+  return types.map(t => { const n = twStepsFor(pid).filter(s => s.type === t).length;
+    return `<button class="chip tw-chip${n ? " on" : ""}" data-act="${act}" data-tw-pid="${esc(pid)}" data-tw-type="${t}">${esc(TW_TYPES[t].label)}${n ? `<span class="tw-badge">×${n}</span>` : ""}</button>`; }).join("");
+}
+
+/* Focus 5: one card per focus person */
+function twFocusScreen(){
+  const list = twFocus();
+  if (!list.length) return `<div class="stack-lg"><div><div class="eyebrow">Focus 5</div><h2>Choose up to 5 people to focus on</h2>
+      <p class="muted" style="margin:6px 0 0">Your Focus 5 are the people you pray for each day and plan next steps with. Open someone in People and tap ☆ Focus 5.</p></div>
+      <div><button class="btn small" data-act="tw-to-people">Go to People</button></div></div>`;
+  const i = Math.min(S.tw.focusIdx, list.length - 1); const person = list[i]; const p = twPlan(); const f = first(person.name);
+  const steps = twStepsFor(person.id); const last = twLastLog(person);
+  const ago = last ? daysBetween(last.at, today()) : null; const late = ago !== null && ago > 14;
+  const noted = [...(person.logs || [])].sort((a, b) => b.at.localeCompare(a.at)).find(l => l.shared || l.cares || l.questions);
+  const snippet = noted && (noted.shared || noted.cares || noted.questions);
+  const prayers = (person.prayers || []).filter(r => !r.answeredAt);
+  const dates = twDatesInWeek(person);
+  const sugg = twSuggestions(person);
+  const metaLine = [isFam(person) ? "Church family · " + DEPTHS[depthOf(person)] : STAGES[person.stage || 0], person.relationship || person.howMet].filter(Boolean).join(" · ");
+  const justPray = p.justPray.includes(person.id) && !steps.length;
+  return `<div class="stack-lg">
+    <div class="row tw-ptop">${twAvatar(person)}<div class="grow"><div class="eyebrow">Focus 5</div><h2>${esc(person.name)}</h2><div class="meta">${esc(metaLine)}</div></div><span class="tw-count">${i + 1} of ${list.length}</span></div>
+    <div class="card tw-ctx">
+      <div class="tw-ctx-row"><span class="lbl">Last talked</span><span class="${late ? "danger" : ""}">${last ? `${ago <= 0 ? "Today" : ago === 1 ? "Yesterday" : ago + " days ago"} · ${esc(last.type)}${late ? " · time to check in" : ""}` : "No conversations logged yet"}</span></div>
+      ${snippet ? `<p class="tw-snip">“${esc(snippet)}”</p>` : ""}
+      ${prayers.length ? `<div class="tw-ctx-row"><span class="lbl">Praying for</span><span>${esc(prayers.map(r => r.text).join(", "))}</span></div>` : ""}
+      ${dates.length ? `<div class="tw-ctx-row"><span class="lbl">This week</span><span class="danger">${esc(dates.map(d => d.label + " · " + wkLong(d.date)).join(", "))}</span></div>` : ""}
+    </div>
+    ${justPray ? `<div class="tw-prayonly"><div><b>Just praying for ${esc(f)} this week.</b><div class="small muted">No tasks. ${esc(f)} goes into your prayer rotation.</div></div><button class="pill-btn" data-act="tw-unpray" data-tw-pid="${esc(person.id)}">Undo</button></div>` : ""}
+    <div class="stack">
+      <div><h3 class="tw-q">What would you like to do with ${esc(f)} this week?</h3>
+        <p class="small muted" style="margin:4px 0 0">All optional. Tap as many as you like, tap again to add another. Press and hold a chip for a rhythm.</p></div>
+      <div class="chips wrap tw-chips">${twChips(person.id, TW_CHIPS, "tw-chip")}<button class="chip tw-chip rhythm" data-act="tw-rhythms" data-tw-pid="${esc(person.id)}">Rhythms…</button></div>
+      ${sugg.length ? `<div class="stack tw-rows">${sugg.map(g => `<div class="tw-sugg"><span class="tw-tag">Suggested</span><span class="grow">${esc(g.title)} · ${esc(wkShort(g.day))}</span>
+        <button class="pill-btn" data-act="tw-keep" data-tw-pid="${esc(person.id)}" data-tw-key="${esc(g.key)}">Add</button><button class="iconbtn-sm" data-act="tw-dismiss" data-tw-key="${esc(g.key)}" aria-label="Dismiss suggestion">×</button></div>`).join("")}</div>` : ""}
+      ${steps.length ? `<div class="stack tw-rows">${steps.map(twRow).join("")}</div>` : ""}
+      <button class="tw-addown" data-act="tw-addown" data-tw-pid="${esc(person.id)}">+ Add your own</button>
+      ${steps.length >= 4 ? `<div class="banner info">That's a full week with ${esc(f)}. Good problem to have.</div>` : ""}
+    </div>
+    <div class="row spread wrap"><button class="linkbtn muted" data-act="tw-justpray" data-tw-pid="${esc(person.id)}">Nothing this week, just pray</button><button class="linkbtn muted" data-act="tw-swap" data-tw-pid="${esc(person.id)}">Swap out of Focus 5</button></div>
+  </div>`;
+}
+function twRhythmSheet(pid, type){
+  const f = first(twP(pid)?.name || ""); const types = type ? [type] : ["text","pray","meetup"];
+  openSheet(`<div class="stack"><h2>Rhythms for ${esc(f)}</h2>
+    <p class="small muted" style="margin:0">Fills in the steps for you. Replaces any ${type ? esc(TW_TYPES[type].label) + " " : ""}steps already set for ${esc(f)}.</p>
+    ${types.map(t => (TW_RHYTHMS[t] || TW_RHYTHMS._).map(([l, dl, ds]) => `<button class="tw-sopt" data-act="tw-rhythm" data-tw-pid="${esc(pid)}" data-tw-type="${t}" data-tw-days="${ds.join(",")}"><span>${esc(type ? l : TW_TYPES[t].label + ": " + l)}</span><span class="muted">${esc(dl)}</span></button>`).join("")).join("")}
+    <button class="btn ghost" data-act="close-sheet">Cancel</button></div>`);
+}
+function twSwapSheet(pid){
+  const others = realPeople().filter(q => !q.focus).sort((a, b) => a.name.localeCompare(b.name));
+  openSheet(`<div class="stack"><h2>Who takes ${esc(first(twP(pid)?.name || ""))}'s spot?</h2>
+    ${others.length ? others.map(q => `<button class="tw-sopt" data-act="tw-swap-to" data-tw-pid="${esc(q.id)}" data-tw-from="${esc(pid)}"><span class="row" style="gap:10px">${twAvatar(q, true)}${esc(q.name)}</span><span class="muted">${esc(isFam(q) ? "Church family" : STAGE_SHORT[q.stage || 0])}</span></button>`).join("") : `<p class="muted">Everyone on your list is already in your Focus 5.</p>`}
+    <button class="btn ghost" data-act="close-sheet">Cancel</button></div>`);
+}
+
 // Selects and pickers inside the planner. Returns true if it handled the change.
 function twChange(el){
   const d = el.dataset; const p = twPlan(); if (!p) return false;
   if (d.twCarryday){ const c = p.carry.find(x => x.taskId === d.twCarryday); if (c){ c.day = el.value; twSave(); render(); } return true; }
+  if (d.twSid && (d.twF === "day" || d.twF === "time")){ const s = p.steps.find(x => x.id === d.twSid); if (s){ s[d.twF] = el.value; twSave(); render(); } return true; }
   return false;
 }
+// Typing in a step's title or place: save without redrawing (keeps the keyboard up)
+function twInput(el){
+  const d = el.dataset; if (!d.twSid || (d.twF !== "title" && d.twF !== "location")) return;
+  const s = twPlan()?.steps.find(x => x.id === d.twSid); if (s){ s[d.twF] = el.value; twSave(); }
+}
+// Planner buttons. Returns true if it handled the tap.
+function twClick(act, d, el){
+  const p = twPlan(); if (!p) return false;
+  const pid = d.twPid;
+  switch (act){
+    case "tw-chip": if (twLP.fired){ twLP.fired = false; return true; } twAddStep(pid, d.twType); render(); return true;
+    case "tw-rhythms": twRhythmSheet(pid); return true;
+    case "tw-rhythm": {
+      const days = d.twDays.split(",").map(i => twDays()[+i]).filter(x => twOpenDays().includes(x));
+      closeSheet();
+      if (!days.length){ toast("Those days have already passed this week."); render(); return true; }
+      p.steps = p.steps.filter(s => !(s.personId === pid && s.type === d.twType));
+      days.forEach(day => twAddStep(pid, d.twType, { day }));
+      render(); return true; }
+    case "tw-del": twRemoveStep(d.twSid); render(); return true;
+    case "tw-rem": { const s = p.steps.find(x => x.id === d.twSid); if (!s) return true; const off = s.removedReminders ||= [];
+      s.removedReminders = off.includes(d.twK) ? off.filter(k => k !== d.twK) : [...off, d.twK]; twSave(); render(); return true; }
+    case "tw-keep": { const person = twP(pid); const g = person && twSuggestions(person).find(x => x.key === d.twKey);
+      if (g) twAddStep(pid, g.type, { title: g.title, day: g.day }); p.dismissedSuggestions.push(d.twKey); twSave(); render(); return true; }
+    case "tw-dismiss": p.dismissedSuggestions.push(d.twKey); twSave(); render(); return true;
+    case "tw-addown": { const s = twAddStep(pid, "custom"); render(); setTimeout(() => $("#tw-t-" + s.id)?.focus(), 30); return true; }
+    case "tw-justpray": { const f = first(twP(pid)?.name || "");
+      p.steps = p.steps.filter(s => s.personId !== pid); if (!p.justPray.includes(pid)) p.justPray.push(pid); twSave();
+      toast(`Just praying for ${f} this week`); twNext(); return true; }
+    case "tw-unpray": p.justPray = p.justPray.filter(x => x !== pid); twSave(); render(); return true;
+    case "tw-swap": twSwapSheet(pid); return true;
+    case "tw-swap-to": { const from = twP(d.twFrom), to = twP(pid); if (!from || !to) return true;
+      from.focus = false; to.focus = true; savePerson(from); savePerson(to); closeSheet();
+      S.tw.focusIdx = Math.max(0, twFocus().findIndex(q => q.id === to.id)); twGo("focus", S.tw.focusIdx);
+      toast(`${first(to.name)} is in your Focus 5`); return true; }
+    case "tw-to-people": twClose(); go("people"); return true;
+  }
+  return false;
+}
+// Press and hold a chip (half a second) for rhythms, without iPhone's text-selection callout
+const twLP = { t:null, fired:false, x:0, y:0 };
+document.addEventListener("pointerdown", e => {
+  twLP.fired = false; clearTimeout(twLP.t);
+  const c = e.target.closest('[data-act="tw-chip"]'); if (!c) return;
+  twLP.x = e.clientX; twLP.y = e.clientY;
+  twLP.t = setTimeout(() => { twLP.fired = true; try { navigator.vibrate && navigator.vibrate(10); } catch(_){} twRhythmSheet(c.dataset.twPid, c.dataset.twType); }, 500);
+});
+document.addEventListener("pointermove", e => { if (twLP.t && Math.hypot(e.clientX - twLP.x, e.clientY - twLP.y) > 10) clearTimeout(twLP.t); });
+["pointerup","pointercancel"].forEach(ev => document.addEventListener(ev, () => clearTimeout(twLP.t)));
+document.addEventListener("contextmenu", e => { if (e.target.closest(".tw-chip")) e.preventDefault(); });
+// Swipe a step row left to remove it
+let twSw = null;
+document.addEventListener("pointerdown", e => {
+  const r = e.target.closest(".tw-row[data-tw-row]"); if (!r || e.target.closest("input,select,button")) return;
+  twSw = { el:r, x:e.clientX, y:e.clientY, dx:0 };
+});
+document.addEventListener("pointermove", e => {
+  if (!twSw) return; twSw.dx = e.clientX - twSw.x;
+  if (Math.abs(e.clientY - twSw.y) > Math.abs(twSw.dx)){ twSw.el.style.transform = ""; twSw.el.style.opacity = ""; return; }
+  if (twSw.dx < 0){ twSw.el.style.transform = `translateX(${twSw.dx}px)`; twSw.el.style.opacity = String(Math.max(.2, 1 + twSw.dx / 250)); }
+});
+["pointerup","pointercancel"].forEach(ev => document.addEventListener(ev, () => {
+  if (!twSw) return; const { el, dx } = twSw; twSw = null;
+  if (ev === "pointerup" && dx < -90 && S.tw){ twRemoveStep(el.dataset.twRow); render(); } else { el.style.transform = ""; el.style.opacity = ""; }
+}));
 
 const TW_SCREENS = {
   back: () => twLookBack(),
+  focus: () => twFocusScreen(),
   pause: () => `<div class="tw-pause">
       <div class="eyebrow">Before you plan</div>
       <div><blockquote class="tw-verse">“Walk in wisdom toward them that are without, redeeming the time.”</blockquote><div class="vref muted">Colossians 4:5</div></div>
@@ -1387,6 +1580,7 @@ document.addEventListener("click", async e => {
   if (d.bringDel && md){ md.bringUp = md.bringUp.filter(b => b.id !== d.bringDel); renderBring(); return; }
   if (d.remOpen && md){ md.openRem = d.remOpen; renderRems(); $(`[data-rem-time="${d.remOpen}"]`)?.focus(); return; }
   if (d.remDel && md){ md.reminders = md.reminders.filter(r => r.id !== d.remDel); md.touched = true; if (md.openRem === d.remDel) md.openRem = null; renderRems(); return; }
+  if (S.tw && d.act && d.act.startsWith("tw-") && twClick(d.act, d, el)) return;
 
   switch (d.act){
     case "back": S.ui.personId = null; S.ui.open = null; render(); break;
@@ -1501,6 +1695,7 @@ document.addEventListener("keydown", e => {
 });
 document.addEventListener("input", e => {
   const d = e.target.dataset;
+  if (S.tw) twInput(e.target);
   if (md && (d.md === "title" || d.md === "location" || d.md === "remindAt")) md[d.md] = e.target.value;
   if (md && d.bring){ const b = md.bringUp.find(x => x.id === d.bring); if (b) b.text = e.target.value; }
   if (e.target.id === "people-q"){ S.ui.q = e.target.value; const pos = e.target.selectionStart; render(); const i = $("#people-q"); i.focus(); try { i.setSelectionRange(pos,pos); } catch(_){} }
