@@ -685,7 +685,83 @@ function twSoon(){
     <div class="card empty">This step is still being built. It's coming in the next update.</div>
     ${S.tw.screen === "done" ? `<div><button class="btn" data-act="tw-close">Back to Today</button></div>` : ""}</div>`;
 }
+/* Planner building blocks */
+const TW_TYPES = {
+  text:   { label:"Text",               def:0, title: f => `Text ${f}` },
+  meetup: { label:"Meetup",             def:5, title: f => `Coffee with ${f}` },
+  invite: { label:"Invite",             def:2, title: f => `Invite ${f} to…` },
+  verse:  { label:"Send a verse",       def:3, title: f => `Send ${f} a verse` },
+  drop:   { label:"Drop something off", def:4, title: f => `Drop something off for ${f}` },
+  pray:   { label:"Pray",               def:1, title: f => `Pray for ${f}` },
+  custom: { label:"Your own",           def:2, title: () => "" }
+};
+const twToday = () => tzNow().date;
+const twDays = () => weekDates(S.tw.weekOf);
+// Days still ahead in the plan week (planning midweek, earlier days can't be picked)
+function twOpenDays(){ const t = twToday(); const d = twDays().filter(x => x >= t); return d.length ? d : twDays(); }
+const wkShort = d => new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday:"short" });
+const wkLong = d => new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday:"long" });
+const dayOpt = d => new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday:"short", month:"short", day:"numeric" });
+const twP = id => { const p = S.people.get(id); return p && !p.example ? p : null; };
+const twSave = () => saveWeekPlanSoon(twPlan());
+const twAvatar = (p, sm) => `<div class="avatar tw-av${sm ? " sm" : ""}" style="--pc:${personColor(p.id)}">${esc(initials(p.name))}</div>`;
+const twDayOptions = (sel, open = twOpenDays()) => twDays().map(d => `<option value="${d}" ${d === sel ? "selected" : ""} ${open.includes(d) ? "" : "disabled"}>${esc(dayOpt(d))}</option>`).join("");
+// Find any task (on a person or standalone) by id
+function twFindTask(id){
+  for (const q of realPeople()){ const t = (q.tasks || []).find(x => x.id === id); if (t) return { t, owner:q }; }
+  const t = (S.meta.tasks || []).find(x => x.id === id); return t ? { t, owner:null } : null;
+}
+
+/* Look back: last week at a glance, and what to do with anything unfinished */
+function twUnfinished(){
+  const cutoff = [S.tw.weekOf, twToday()].sort()[1]; const out = [];
+  realPeople().forEach(q => (q.tasks || []).forEach(t => { if (!t.done && t.due && t.due < cutoff) out.push({ t, owner:q }); }));
+  (S.meta.tasks || []).forEach(t => { if (!t.done && t.due && t.due < cutoff) out.push({ t, owner:null }); });
+  return out.sort((a, b) => b.t.due.localeCompare(a.t.due)).slice(0, 8);
+}
+function twLookBack(){
+  const p = twPlan(); const from = addDays(S.tw.weekOf, -7), to = addDays(S.tw.weekOf, -1);
+  const inWk = d => d && d >= from && d <= to; const ppl = realPeople();
+  let conv = 0, due = 0, done = 0; const answered = [];
+  ppl.forEach(q => {
+    conv += (q.logs || []).filter(l => inWk(l.at)).length;
+    (q.prayers || []).filter(r => inWk(r.answeredAt)).forEach(r => answered.push({ q, r }));
+  });
+  [...ppl.flatMap(q => q.tasks || []), ...(S.meta.tasks || [])].filter(t => inWk(t.due)).forEach(t => { due++; if (t.done && !t.letGo) done++; });
+  const open = twOpenDays(); const unfinished = twUnfinished();
+  const carryOf = id => p.carry.find(c => c.taskId === id);
+  const row = ({ t, owner }) => { const c = carryOf(t.id); const ch = c ? c.choice : null;
+    return `<div class="card tw-carry${ch === "letgo" ? " letgo" : ""}">
+      <div class="row">${owner ? twAvatar(owner, true) : ""}<div class="grow"><div class="tw-carry-title">${taskTitle(t)}</div><div class="meta">${owner ? esc(first(owner.name)) + " · " : ""}was due ${esc(fmtDay(t.due))}</div></div></div>
+      <div class="row wrap tw-opts">${[["carry","Carry forward"],["resched","Reschedule"],["letgo","Let go"]].map(([k, l]) =>
+        `<button class="pill-btn${ch === k ? " on" : ""}" aria-pressed="${ch === k}" data-act="tw-carry" data-tw-task="${esc(t.id)}" data-tw-pid="${esc(owner ? owner.id : "")}" data-tw-k="${k}">${l}</button>`).join("")}</div>
+      ${ch === "carry" ? `<span class="small muted">Added to ${esc(wkLong(open[0]))}.</span>` : ""}
+      ${ch === "resched" ? `<label class="row small muted" style="gap:8px">Move to <select class="t tw-sel" data-tw-carryday="${esc(t.id)}">${twDayOptions(c.day)}</select></label>` : ""}
+      ${ch === "letgo" ? `<span class="small muted">Letting it go. It won't remind you again.</span>` : ""}
+    </div>`; };
+  return `<div class="stack-lg">
+    <div><div class="eyebrow">Last week · ${esc(fmtDate(from))}–${esc(fmtDate(to))}</div><h2>Look back</h2></div>
+    <div class="tw-stats">
+      <div><b>${conv}</b><span>conversation${conv === 1 ? "" : "s"} logged</span></div>
+      <div><b>${done}/${due}</b><span>next steps done</span></div>
+      <div><b>${answered.length}</b><span>prayer${answered.length === 1 ? "" : "s"} answered</span></div>
+    </div>
+    ${answered.length ? `<div class="stack">${answered.map(({ q, r }) => `<div class="tw-answered"><b>Answered: ${esc(first(q.name))}, ${esc(r.text)}</b><p>${r.at ? `You started praying ${esc(fmtDate(r.at))}. ` : ""}Marked answered ${esc(fmtDate(r.answeredAt))}.</p></div>`).join("")}</div>` : ""}
+    ${unfinished.length ? `<div class="stack">
+      <div><h3>Unfinished from last week</h3><p class="small muted" style="margin:4px 0 0">Decide what comes with you. Letting go is fine.</p></div>
+      ${unfinished.map(row).join("")}</div>` : ""}
+  </div>`;
+}
+
+// Selects and pickers inside the planner. Returns true if it handled the change.
+function twChange(el){
+  const d = el.dataset; const p = twPlan(); if (!p) return false;
+  if (d.twCarryday){ const c = p.carry.find(x => x.taskId === d.twCarryday); if (c){ c.day = el.value; twSave(); render(); } return true; }
+  return false;
+}
+
 const TW_SCREENS = {
+  back: () => twLookBack(),
   pause: () => `<div class="tw-pause">
       <div class="eyebrow">Before you plan</div>
       <div><blockquote class="tw-verse">“Walk in wisdom toward them that are without, redeeming the time.”</blockquote><div class="vref muted">Colossians 4:5</div></div>
@@ -1361,6 +1437,11 @@ document.addEventListener("click", async e => {
     case "tw-close": twClose(); break;
     case "tw-next": if (S.tw) twNext(); break;
     case "tw-back": if (S.tw) twBack(); break;
+    case "tw-carry": { const p = twPlan(); if (!p) break; const c = p.carry.find(x => x.taskId === d.twTask);
+      if (c && c.choice === d.twK) p.carry = p.carry.filter(x => x !== c);
+      else if (c){ c.choice = d.twK; if (d.twK === "resched" && !c.day) c.day = twOpenDays()[0]; }
+      else p.carry.push({ taskId: d.twTask, personId: d.twPid || null, choice: d.twK, day: d.twK === "resched" ? twOpenDays()[0] : undefined });
+      twSave(); render(); break; }
     case "toggle-tw": { const on = !twEnabled(); try { localStorage.setItem(TW_PREVIEW_KEY, on ? "1" : "0"); } catch(_){} settingsSheet(); render(); toast(on ? "Tend the Week is on. Look for it on Today." : "Tend the Week preview is off"); break; }
     case "quiet": quietSheet(); break;
     case "quiet-off": S.meta.quietUntil = null; saveMeta(); closeSheet(); toast("Quiet mode off"); render(); break;
@@ -1408,6 +1489,7 @@ document.addEventListener("change", e => {
     if (el.id === "set-follow"){ const h = Math.min(48, Math.max(1, Math.round(+val || 6))); md0.followupHours = h; el.value = h; }
     S.meta.meetupDefaults = md0; saveMeta(); toast("Saved. Applies to new meetups and Restore defaults.");
   }
+  if (S.tw && twChange(el)) return;
   if (!md) return;
   if (d.md === "due" || d.md === "time"){ const prev = { due: md.due, time: md.time }; md[d.md] = el.value; if (md.kind === "meetup") whenChanged(prev); }
   else if (d.md === "withPid"){ md.withPid = el.value || null; }
