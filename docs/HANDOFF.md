@@ -65,7 +65,7 @@ Once a day at the user's chosen `reminder_time` (default 07:30 in their timezone
 1. Overdue/due-today tasks (meetups today show "at 9am")
 2. Important dates today or within 7 days
 3. "Check in with X" for focus people with no contact in 14+ days
-4. "Pray for A, B, C" (focus people)
+4. "Pray for A, B, C": today's people from the finished Tend the Week plan's prayer rotation if there is one (omitted if no one is on today), otherwise the focus people — `prayToday()` in both `app.js` and `send-reminders`
 5. The verse of the day
 
 If there's nothing to say and no verse, it stays silent. Users can turn it off (`meta.data.dailySummary = false`) or pause it (`meta.data.quietUntil` = `"on"` or a date). The summary message must match what the **Today screen** shows — the server's `buildMessage()` mirrors those rules, so keep them in sync if you change either.
@@ -111,7 +111,7 @@ Policy: **own people** — `ALL` where `auth.uid() = user_id`.
 | column | type | notes |
 |---|---|---|
 | `user_id` | uuid PK → auth.users | |
-| `data` | jsonb | `dailySummary`, `hideExamples`, `kind`, `quietUntil`, `reviewAt`, `meetupDefaults`, `tasks[]` (standalone tasks) |
+| `data` | jsonb | `dailySummary`, `hideExamples`, `kind`, `quietUntil`, `reviewAt`, `meetupDefaults`, `tasks[]` (standalone tasks), `weekPlans` (Tend the Week plans keyed by Monday; latest 12; shape in the planner spec §6) |
 | `notify_enabled` | bool | default false; only these users are processed by the scheduler |
 | `reminder_time` | text `HH:MM` | default `07:30` |
 | `timezone` | text IANA | default `America/New_York` |
@@ -192,6 +192,8 @@ type Task = {
   due: string;           // YYYY-MM-DD (user's local date)
   remindAt?: string;     // HH:MM, regular tasks only
   done?: boolean; doneAt?: string;
+  planWeek?: string; stepType?: string; // set on tasks made by Tend the Week
+  letGo?: boolean;       // "Let go" in Tend the Week: done without being completed
 
   // Meetup-only fields
   kind?: "meetup";
@@ -260,7 +262,8 @@ Two entry points:
 | Item | Status |
 |---|---|
 | Fix hardcoded secrets (§7.1) + add `send-reminders` to repo (§7.3) | Done Oct 6 |
-| Tend the Week planner (`docs/TEND_WEEK_PLANNER_SPEC.md`) | Building now |
+| Tend the Week planner, phase 1 (`docs/TEND_WEEK_PLANNER_SPEC.md`) | Live Oct 6 (replaced Weekly review) |
+| Tend the Week phase 2: Sunday nudge, Wednesday check-in, Saturday reflection pushes | Next |
 | Meetups with night-before / morning-of / +6h follow-up reminders, each editable/deletable | Live |
 | Church family tab under People (amber) | Live |
 | Daily verses → ESV | Paused |
