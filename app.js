@@ -402,9 +402,6 @@ function settingsSheet(){
         <div class="setting"><div class="grow"><div>Follow-up</div><div class="small muted">Hours after the meetup starts</div></div><input class="t" type="number" inputmode="numeric" min="1" max="48" step="1" id="set-follow" value="${esc(meetupDefaults().followupHours)}" style="width:80px"></div>
       </div></section>
     <section class="stack" id="set-cal"><h3>Calendar</h3>${calSection()}</section>
-    <section class="stack"><h3>Try what's next</h3>
-      <div class="setting"><div class="grow"><div>Tend the Week (preview)</div><div class="small muted">A weekly planning walk-through. Still being built, so some steps are placeholders. Only changes this phone.</div></div>
-        <button class="switch" role="switch" aria-checked="${twEnabled()}" data-act="toggle-tw" aria-label="Tend the Week preview"></button></div></section>
     <section class="stack"><h3>Quiet mode</h3><p class="small muted" style="margin:0">Pause reminders for a day, a week, or until you turn it back on.</p><div><button class="btn small ghost" data-act="quiet">${isQuiet() ? "Quiet mode is on" : "Turn on quiet mode"}</button></div></section>
     <section class="stack"><h3>Your data</h3><p class="small muted" style="margin:0">Signed in as ${esc(USER?.email || "")}. Only you can see your list.</p>
       <div class="row wrap"><button class="btn small ghost" data-act="export">Download a copy</button><button class="btn small ghost" data-act="signout">Sign out</button></div></section>
@@ -565,7 +562,6 @@ function viewToday(){
     (p.logs||[]).filter(l => l.at>=ws && l.at<=t).forEach(l => { convN++; if (l.type==="Meal"||l.type==="Served") mealN++; if (l.type==="Invited") invN++; });
   });
   const hello = new Date().getHours() < 12 ? "Good morning" : new Date().getHours() < 18 ? "Good afternoon" : "Good evening";
-  const isSun = new Date().getDay() === 0;
   return `
   <div class="top"><div><div class="date">${esc(new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"}))}</div><h1>${hello}</h1></div>
     <div class="top-actions"><button class="iconbtn" data-act="quiet">${quiet ? "Quiet on" : "Quiet mode"}</button><button class="iconbtn gear" data-act="settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div></div>
@@ -592,17 +588,11 @@ function viewToday(){
       <div class="section-head"><h2>This week</h2><span class="small muted">Faithfulness, not results</span></div>
       <div class="tally"><div><b>${prayedN}</b><span>prayers</span></div><div><b>${convN}</b><span>conversations</span></div><div><b>${mealN}</b><span>meals &amp; service</span></div><div><b>${invN}</b><span>invites</span></div></div>
     </section>
-    ${twEnabled() ? twEntry() : `<section class="card stack">
-      <div><h3>Weekly review</h3><p class="small muted" style="margin:4px 0 0">${isSun ? "It's Sunday. " : ""}Five minutes: who's been quiet, what God answered, and three steps for the week.${S.meta.reviewAt ? " Last done " + esc(fmtDate(S.meta.reviewAt)) + "." : ""}</p></div>
-      <div><button class="btn small" data-act="review">Start review</button></div>
-    </section>`}
+    ${twEntry()}
     ${storageNote()}
   </div>`;
 }
 /* ---------- Tend the Week: the planner ---------- */
-// Preview switch (Settings) until the planner is finished; saved on this phone only.
-const TW_PREVIEW_KEY = "tend-tw-preview";
-function twEnabled(){ try { return localStorage.getItem(TW_PREVIEW_KEY) === "1"; } catch(_) { return false; } }
 const TW_SEQ = ["pause","back","focus","beyond","week","prayer","done"];
 const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // S.tw is the open planner: { weekOf, screen, focusIdx, pauseReady }. The plan itself lives in meta.weekPlans.
@@ -613,7 +603,9 @@ function twOpen(){
   const weekOf = planWeekOf(); const p = weekPlan(weekOf, true);
   const r = !p.completedAt && p.resumeAt && TW_SEQ.includes(p.resumeAt.screen) && p.resumeAt.screen !== "done" ? p.resumeAt : null;
   S.tw = { weekOf, screen:"pause", focusIdx:0, pauseReady:false };
-  closeSheet(); twGo(r ? r.screen : "pause", r ? Math.min(r.focusIdx || 0, Math.max(0, twFocus().length - 1)) : 0);
+  closeSheet();
+  if (p.completedAt) return twGo("week"); // a finished plan opens for editing; Finish again saves the changes
+  twGo(r ? r.screen : "pause", r ? Math.min(r.focusIdx || 0, Math.max(0, twFocus().length - 1)) : 0);
 }
 function twGo(screen, focusIdx = 0){
   const tw = S.tw; tw.screen = screen; tw.focusIdx = focusIdx;
@@ -622,14 +614,16 @@ function twGo(screen, focusIdx = 0){
   if (screen === "pause" && !tw.pauseReady) setTimeout(() => { if (S.tw !== tw) return; tw.pauseReady = true; if (tw.screen === "pause") render(); }, reduceMotion() ? 0 : 2500);
 }
 function twClose(){
-  const p = twPlan(); const done = S.tw.screen === "done" || (p && p.completedAt);
+  const p = twPlan(); const done = S.tw.screen === "done";
   if (p) saveWeekPlan(p);
   S.tw = null; render(); window.scrollTo(0, 0);
-  if (!done) toast("Saved. Pick up where you left off from Today.");
+  if (done) return;
+  toast(p && p.completedAt ? "Closed. Any changes apply when you tap Finish planning." : "Saved. Pick up where you left off from Today.");
 }
 function twNext(){
   const tw = S.tw;
   if (tw.screen === "focus" && tw.focusIdx < twFocus().length - 1) return twGo("focus", tw.focusIdx + 1);
+  if (tw.screen === "prayer") return twFinish();
   const i = TW_SEQ.indexOf(tw.screen); if (i < TW_SEQ.length - 1) twGo(TW_SEQ[i + 1]);
 }
 function twBack(){
@@ -642,7 +636,7 @@ function twBack(){
 }
 // Today: the glowing card shows in the planning window (or whenever a draft is waiting).
 function twTodayCard(){
-  if (!twEnabled() || S.examples) return "";
+  if (S.examples) return "";
   const p = weekPlan(planWeekOf()); const draft = p && !p.completedAt;
   if (!draft && !(inPlanWindow() && !(p && p.completedAt))) return "";
   return `<button class="tw-card" data-act="tw-start">
@@ -653,6 +647,7 @@ function twTodayCard(){
 }
 // Today: always-available entry (where Weekly review used to be).
 function twEntry(){
+  if (S.examples) return "";
   const w = planWeekOf(); const p = weekPlan(w);
   const label = p && p.completedAt ? "Edit this week's plan" : p ? "Continue planning" : "Plan the week";
   return `<section class="card stack">
@@ -1002,6 +997,117 @@ function twMoveItem(key, day){
   S.tw.moveOpen = null; twSave(); render();
 }
 
+/* Prayer rotation: who you'll pray for each day */
+// Built from Pray steps (solid), Focus 5 / "just pray" people without a Pray step spread twice
+// across the week 3 days apart (dashed), plus anyone added here. Returns { "YYYY-MM-DD": [{ pid, kind, ref }] }.
+function twRotation(p = twPlan()){
+  const days = weekDates(p.weekOf), t = twToday(), open = days.filter(d => d >= t).length ? days.filter(d => d >= t) : days, r = {};
+  days.forEach(d => r[d] = []);
+  const add = (d, x) => { if (r[d] && twP(x.pid) && !r[d].some(y => y.pid === x.pid)) r[d].push(x); };
+  p.steps.filter(s => s.type === "pray").forEach(s => add(s.day, { pid:s.personId, kind:"step", ref:s.id }));
+  const hasPray = id => p.steps.some(s => s.personId === id && s.type === "pray");
+  const auto = [...twFocus().map(q => q.id), ...p.justPray].filter((id, i, a) => a.indexOf(id) === i && !hasPray(id));
+  const moves = p.prayMoves || {};
+  auto.forEach((pid, i) => { const k = Math.round(i * open.length / auto.length) % open.length;
+    [open[k], open[(k + 3) % open.length]].forEach((d, j) => { const key = pid + "|" + j; const nd = key in moves ? moves[key] : d; if (nd) add(nd, { pid, kind:"auto", ref:key }); }); });
+  (p.prayExtra || []).forEach(x => add(x.day, { pid:x.pid, kind:"extra", ref:x.id }));
+  return r;
+}
+// Move a name to another day (day) or take it off (day = "")
+function twPrayMove(kind, ref, day){
+  const p = twPlan();
+  if (kind === "step"){ const s = p.steps.find(x => x.id === ref); if (!s) return; if (day) s.day = day; else p.steps = p.steps.filter(x => x !== s); }
+  if (kind === "auto") (p.prayMoves ||= {})[ref] = day;
+  if (kind === "extra"){ const x = (p.prayExtra || []).find(y => y.id === ref); if (!x) return; if (day) x.day = day; else p.prayExtra = p.prayExtra.filter(y => y !== x); }
+  twSave();
+}
+function twPrayerScreen(){
+  const r = twRotation(); const open = twOpenDays();
+  return `<div class="stack-lg">
+    <div><div class="eyebrow">Prayer rotation</div><h2>Who you'll pray for each day</h2>
+      <p class="muted" style="margin:6px 0 0">Solid names come from your Pray steps. Dashed names were spread out for you. Tap a name to move it, or + to add someone.</p></div>
+    <div>${Object.keys(r).map(d => `<div class="tw-prow${open.includes(d) ? "" : " past"}"><div class="tw-pd">${esc(wkShort(d))}<small>${esc(fmtDate(d))}</small></div>
+      <div class="tw-pnames">${r[d].map(x => { const q = twP(x.pid);
+        return `<button class="tw-pname${x.kind === "auto" ? " auto" : ""}" data-act="tw-pname" data-tw-kind="${x.kind}" data-tw-ref="${esc(x.ref)}" data-tw-pid="${esc(x.pid)}" data-tw-day="${d}"><span class="tw-dot" style="--pc:${personColor(q.id)}"></span>${esc(first(q.name))}</button>`; }).join("")}
+        ${open.includes(d) ? `<button class="tw-pname auto" data-act="tw-padd" data-tw-day="${d}" aria-label="Add someone to ${esc(wkLong(d))}">+</button>` : ""}</div></div>`).join("")}</div>
+    <div class="banner quiet">Your daily summary's “Pray for…” line follows this list, so ${esc(wkLong(open[0]))}'s notification names only ${esc(wkLong(open[0]))}'s people.</div>
+  </div>`;
+}
+function twPrayNameSheet(d){
+  const q = twP(d.twPid); if (!q) return; const day = d.twDay; const open = twOpenDays(); const f = first(q.name);
+  const dayChips = act => `<div class="chips wrap">${twDays().map(x => `<button class="chip" data-act="${act}" data-tw-kind="${d.twKind}" data-tw-ref="${esc(d.twRef)}" data-tw-pid="${esc(q.id)}" data-tw-day="${x}" ${x === day || !open.includes(x) ? "disabled" : ""}>${esc(wkShort(x))}</button>`).join("")}</div>`;
+  openSheet(`<div class="stack"><h2>Pray for ${esc(f)}</h2><p class="small muted" style="margin:0">Currently on ${esc(wkLong(day))}.</p>
+    <span class="f">Move to</span>${dayChips("tw-pmove")}
+    <span class="f">Also pray on</span>${dayChips("tw-palso")}
+    <button class="tw-sopt" data-act="tw-poff" data-tw-kind="${d.twKind}" data-tw-ref="${esc(d.twRef)}" data-tw-pid="${esc(q.id)}" data-tw-day="${day}">Take ${esc(f)} off ${esc(wkLong(day))}</button>
+    <button class="btn ghost" data-act="close-sheet">Cancel</button></div>`);
+}
+function twPrayAddSheet(day){
+  const p = twPlan(); const on = twRotation()[day].map(x => x.pid);
+  const pool = [...twFocus().map(q => q.id), ...p.justPray, ...p.steps.map(s => s.personId)].filter((id, i, a) => a.indexOf(id) === i && !on.includes(id)).map(twP).filter(Boolean);
+  openSheet(`<div class="stack"><h2>Add to ${esc(wkLong(day))}</h2>
+    ${pool.length ? pool.map(q => `<button class="tw-sopt" data-act="tw-paddp" data-tw-pid="${esc(q.id)}" data-tw-day="${day}"><span class="row" style="gap:10px">${twAvatar(q, true)}${esc(q.name)}</span></button>`).join("") : `<p class="muted">Everyone is already on this day.</p>`}
+    <button class="btn ghost" data-act="close-sheet">Cancel</button></div>`);
+}
+
+/* Finish: turn the plan into real next steps */
+function twFinish(){
+  const p = twPlan(); const touched = new Set(); const keep = new Set(); const t0 = today();
+  p.steps.forEach(s => {
+    if (s.type === "pray") return;
+    const person = twP(s.personId); if (!person) return;
+    const ref = s.taskId && twFindTask(s.taskId); let t = ref && ref.t;
+    if (t && t.done){ keep.add(t.id); return; } // already done: leave it be
+    if (!t){ t = { id: uid("t"), done:false, doneAt:null }; (person.tasks ||= []).push(t); s.taskId = t.id; }
+    const before = { due: t.due, time: t.time };
+    Object.assign(t, { title: (s.title || "").trim() || TW_TYPES[s.type].label, due: s.day, planWeek: p.weekOf, stepType: s.type });
+    if (s.type === "meetup" && s.time){
+      const off = s.removedReminders || [];
+      const same = isMeetup(t) && before.due === s.day && before.time === s.time;
+      Object.assign(t, { kind:"meetup", time: s.time, location: (s.location || "").trim() });
+      t.bringUp ||= [];
+      t.reminders = same ? (t.reminders || []).filter(r => !off.includes(r.type)) : defaultReminders(s.day, s.time).filter(r => !off.includes(r.type));
+      delete t.remindAt;
+    } else {
+      if (isMeetup(t)){ delete t.kind; delete t.time; delete t.reminders; delete t.location; delete t.bringUp; }
+      t.remindAt = s.time || null;
+    }
+    keep.add(t.id); touched.add(ref && ref.owner ? ref.owner.id : person.id);
+  });
+  // Steps removed since the last time you finished: remove the tasks they made (unless already done)
+  (p.taskIds || []).filter(id => !keep.has(id)).forEach(id => { const ref = twFindTask(id); if (!ref || ref.t.done) return;
+    if (ref.owner){ ref.owner.tasks = ref.owner.tasks.filter(x => x.id !== id); touched.add(ref.owner.id); } else S.meta.tasks = S.meta.tasks.filter(x => x.id !== id); });
+  p.taskIds = [...keep];
+  // Unfinished from last week
+  const first0 = twOpenDays()[0];
+  p.carry.forEach(c => { const ref = twFindTask(c.taskId); if (!ref) return; const t = ref.t;
+    if (c.choice === "letgo"){ if (!t.done){ t.done = true; t.letGo = true; t.doneAt = t0; } }
+    else { const nd = c.choice === "carry" ? first0 : c.day; if (nd && !t.done && t.due !== nd){
+      if (isMeetup(t) && t.time && t.due) t.reminders = shiftReminders(t.reminders, { due:t.due, time:t.time }, { due:nd, time:t.time });
+      t.due = nd; } }
+    if (ref.owner) touched.add(ref.owner.id); });
+  p.rotation = Object.fromEntries(Object.entries(twRotation(p)).map(([d, l]) => [d, l.map(x => x.pid)]));
+  p.completedAt = new Date().toISOString(); delete p.resumeAt;
+  S.meta.reviewAt = t0;
+  touched.forEach(id => { const q = twP(id); if (q) savePerson(q); });
+  saveWeekPlan(p);
+  twGo("done");
+}
+function twDoneScreen(){
+  const p = twPlan(); const steps = p.steps.filter(s => twP(s.personId));
+  const people = [...new Set(steps.map(s => s.personId))].map(twP);
+  const counts = {}; steps.forEach(s => counts[s.type] = (counts[s.type] || 0) + 1);
+  const names = { meetup:["meetup","meetups"], text:["text","texts"], pray:["prayer day","prayer days"], invite:["invite","invites"], verse:["verse","verses"], drop:["drop-off","drop-offs"], custom:["other step","other steps"] };
+  return `<div class="stack-lg" style="padding-top:8px">
+    <div class="eyebrow">Your week is planned</div>
+    <p class="tw-big">Tending <em>${people.length} ${people.length === 1 ? "person" : "people"}</em> with ${steps.length} next step${steps.length === 1 ? "" : "s"}.</p>
+    ${steps.length ? `<div class="tw-breakdown">${Object.keys(names).filter(k => counts[k]).map(k => `<div><b>${counts[k]}</b><span>${names[k][counts[k] === 1 ? 0 : 1]}</span></div>`).join("")}</div>` : ""}
+    ${people.length ? `<div class="row wrap" style="gap:8px">${people.map(q => `<span class="tw-pchip">${twAvatar(q, true)}${esc(first(q.name))} · ${steps.filter(s => s.personId === q.id).length}</span>`).join("")}</div>` : ""}
+    <div class="tw-blessing"><p>“And let us not be weary in well doing: for in due season we shall reap, if we faint not.”</p><small>Galatians 6:9</small></div>
+    <div><button class="btn" data-act="tw-close">Back to Today</button></div>
+  </div>`;
+}
+
 // Selects and pickers inside the planner. Returns true if it handled the change.
 function twChange(el){
   const d = el.dataset; const p = twPlan(); if (!p) return false;
@@ -1054,6 +1160,12 @@ function twClick(act, d, el){
     case "tw-cap": p.capacity = d.twK; twSave(); render(); return true;
     case "tw-move": S.tw.moveOpen = S.tw.moveOpen === d.twKey ? null : d.twKey; render(); return true;
     case "tw-move-del": twMoveItem(d.twKey, null); return true;
+    case "tw-pname": twPrayNameSheet(d); return true;
+    case "tw-padd": twPrayAddSheet(d.twDay); return true;
+    case "tw-pmove": twPrayMove(d.twKind, d.twRef, d.twDay); closeSheet(); render(); toast(`${first(twP(pid)?.name || "")} moved to ${wkLong(d.twDay)}`); return true;
+    case "tw-palso": (p.prayExtra ||= []).push({ id: uid("px"), pid, day: d.twDay }); twSave(); closeSheet(); render(); toast(`${first(twP(pid)?.name || "")} added to ${wkLong(d.twDay)}`); return true;
+    case "tw-poff": twPrayMove(d.twKind, d.twRef, ""); closeSheet(); render(); return true;
+    case "tw-paddp": (p.prayExtra ||= []).push({ id: uid("px"), pid, day: d.twDay }); twSave(); closeSheet(); render(); return true;
   }
   return false;
 }
@@ -1089,6 +1201,8 @@ const TW_SCREENS = {
   focus: () => twFocusScreen(),
   beyond: () => twBeyondScreen(),
   week: () => twWeekScreen(),
+  prayer: () => twPrayerScreen(),
+  done: () => twDoneScreen(),
   pause: () => `<div class="tw-pause">
       <div class="eyebrow">Before you plan</div>
       <div><blockquote class="tw-verse">“Walk in wisdom toward them that are without, redeeming the time.”</blockquote><div class="vref muted">Colossians 4:5</div></div>
@@ -1637,20 +1751,6 @@ function editTaskSheet(pid, id, confirmDelete){
     <div class="row wrap"><button class="btn">Save</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button><button type="button" class="linkbtn danger" data-act="tdel-ask" style="margin-left:auto">Delete task</button></div>
   </form>`);
 }
-function reviewSheet(){
-  const t = today(); const ws = addDays(t,-7);
-  const quiet = people().filter(p => { const s = sinceContact(p); return s === null || s >= 30; });
-  const answered = []; people().forEach(p => (p.prayers||[]).filter(r=>r.answeredAt && r.answeredAt>=ws).forEach(r=>answered.push({p,r})));
-  openSheet(`<form class="stack" data-form="review">
-    <h2>Weekly review</h2>
-    <div class="stack"><h3>1. What God answered</h3>${answered.length?`<ul class="plain-list">${answered.map(({p,r})=>`<li><span class="star">✓</span><div>${esc(r.text)} <span class="meta">· ${esc(p.name)}</span></div></li>`).join("")}</ul>`:`<p class="small muted">No answered prayers marked this week. Is there one to mark?</p>`}</div>
-    <div class="stack"><h3>2. Gone quiet</h3>${quiet.length?`<p class="small muted">No contact in 30+ days. No guilt; just notice.</p><ul class="plain-list">${quiet.slice(0,6).map(p=>`<li>${avatar(p, "width:28px;height:28px;font-size:11px")}<div class="grow">${esc(p.name)}</div></li>`).join("")}</ul>`:`<p class="small muted">Everyone's been in touch this month.</p>`}</div>
-    <div class="stack"><h3>3. Three steps for this week</h3>
-      ${[0,1,2].map(i=>`<div class="row wrap" style="gap:8px"><select class="t" id="rv-p${i}" style="flex:1 1 140px"><option value="">Who?</option>${people().map(p=>`<option value="${esc(p.id)}" ${quiet[i]&&quiet[i].id===p.id?"selected":""}>${esc(p.name)}</option>`).join("")}</select><input class="t" id="rv-t${i}" style="flex:2 1 180px" placeholder="Step"></div>`).join("")}
-    </div>
-    <div class="row"><button class="btn">Finish review</button><button type="button" class="linkbtn muted" data-act="close-sheet">Cancel</button></div>
-  </form>`);
-}
 function quietSheet(){
   openSheet(`<div class="stack"><h2>Quiet mode</h2><p class="muted" style="margin:0">Pause next-step reminders. Your people and prayers stay right where they are.</p>
     <div class="stack"><button class="btn ghost" data-quiet="1">Rest of today</button><button class="btn ghost" data-quiet="7">One week</button><button class="btn ghost" data-quiet="on">Until I turn it off</button>
@@ -1760,7 +1860,6 @@ document.addEventListener("click", async e => {
       else { p.circle = "family"; if (p.depth === undefined) p.depth = (p.stage||0) >= 4 ? 3 : 1; (p.circleHistory ||= []).push({ circle:"family", at:today() }); toast("Welcome to the family, " + first(p.name) + "!"); }
       S.ui.circle = p.circle; S.ui.stageFilter = "All"; savePerson(p); render(); window.scrollTo(0,0); break; }
     case "hide-examples": S.meta.hideExamples = true; saveMeta(); render(); break;
-    case "review": reviewSheet(); break;
     case "tw-start": twOpen(); break;
     case "tw-close": twClose(); break;
     case "tw-next": if (S.tw) twNext(); break;
@@ -1770,7 +1869,6 @@ document.addEventListener("click", async e => {
       else if (c){ c.choice = d.twK; if (d.twK === "resched" && !c.day) c.day = twOpenDays()[0]; }
       else p.carry.push({ taskId: d.twTask, personId: d.twPid || null, choice: d.twK, day: d.twK === "resched" ? twOpenDays()[0] : undefined });
       twSave(); render(); break; }
-    case "toggle-tw": { const on = !twEnabled(); try { localStorage.setItem(TW_PREVIEW_KEY, on ? "1" : "0"); } catch(_){} settingsSheet(); render(); toast(on ? "Tend the Week is on. Look for it on Today." : "Tend the Week preview is off"); break; }
     case "quiet": quietSheet(); break;
     case "quiet-off": S.meta.quietUntil = null; saveMeta(); closeSheet(); toast("Quiet mode off"); render(); break;
     case "ai-fill": aiFill(el); break;
@@ -1901,10 +1999,6 @@ document.addEventListener("submit", e => {
     closeSheet(); render();
     if (tm && (t.due||"") + tm !== oldKey) remindNote(tm, t.due); else toast("Task updated");
     editing = null;
-  } else if (kind === "review"){
-    let n = 0;
-    [0,1,2].forEach(i => { const pid = v("rv-p"+i), title = v("rv-t"+i); if (!title) return; const t = {id:uid("t"), title, due:addDays(today(), 2+i*2), done:false}; if (pid){ const q = S.people.get(pid); (q.tasks ||= []).push(t); savePerson(q); } else S.meta.tasks.push(t); n++; });
-    S.meta.reviewAt = today(); saveMeta(); closeSheet(); toast(n ? `Review done. ${n} step${n>1?"s":""} planned.` : "Review done."); render();
   }
 });
 
