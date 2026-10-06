@@ -402,6 +402,9 @@ function settingsSheet(){
         <div class="setting"><div class="grow"><div>Follow-up</div><div class="small muted">Hours after the meetup starts</div></div><input class="t" type="number" inputmode="numeric" min="1" max="48" step="1" id="set-follow" value="${esc(meetupDefaults().followupHours)}" style="width:80px"></div>
       </div></section>
     <section class="stack" id="set-cal"><h3>Calendar</h3>${calSection()}</section>
+    <section class="stack"><h3>Try what's next</h3>
+      <div class="setting"><div class="grow"><div>Tend the Week (preview)</div><div class="small muted">A weekly planning walk-through. Still being built, so some steps are placeholders. Only changes this phone.</div></div>
+        <button class="switch" role="switch" aria-checked="${twEnabled()}" data-act="toggle-tw" aria-label="Tend the Week preview"></button></div></section>
     <section class="stack"><h3>Quiet mode</h3><p class="small muted" style="margin:0">Pause reminders for a day, a week, or until you turn it back on.</p><div><button class="btn small ghost" data-act="quiet">${isQuiet() ? "Quiet mode is on" : "Turn on quiet mode"}</button></div></section>
     <section class="stack"><h3>Your data</h3><p class="small muted" style="margin:0">Signed in as ${esc(USER?.email || "")}. Only you can see your list.</p>
       <div class="row wrap"><button class="btn small ghost" data-act="export">Download a copy</button><button class="btn small ghost" data-act="signout">Sign out</button></div></section>
@@ -510,6 +513,8 @@ function render(){
   $("#nav").hidden = !signedIn; $("#fab").hidden = !signedIn;
   if (S.mode === "loading"){ app.innerHTML = `<div class="loading">Opening your list…</div>`; return; }
   if (S.mode === "signin"){ app.innerHTML = viewSignIn(); return; }
+  if (S.tw){ app.innerHTML = viewPlanner(); $("#nav").hidden = true; $("#fab").hidden = true; document.body.dataset.planner = "1"; syncCircle("reach"); return; }
+  delete document.body.dataset.planner;
   const { tab, personId } = S.ui;
   if (personId && S.people.has(personId)) app.innerHTML = viewPerson(S.people.get(personId));
   else { S.ui.personId = null; app.innerHTML = tab === "people" ? viewPeople() : tab === "prayer" ? viewPrayer() : tab === "tasks" ? viewTasks() : viewToday(); }
@@ -565,6 +570,7 @@ function viewToday(){
   <div class="top"><div><div class="date">${esc(new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"}))}</div><h1>${hello}</h1></div>
     <div class="top-actions"><button class="iconbtn" data-act="quiet">${quiet ? "Quiet on" : "Quiet mode"}</button><button class="iconbtn gear" data-act="settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div></div>
   <div class="stack-lg">
+    ${twTodayCard()}
     ${(v => v ? `<section class="verse"><div class="eyebrow">Today's verse</div><blockquote>${esc(v.text)}</blockquote><div class="row spread"><span class="vref">${esc(v.ref)} · KJV</span><button class="linkbtn" data-copy="${esc(v.text + " (" + v.ref + ", KJV)")}">Copy</button></div></section>` : "")(verseToday())}
     ${exampleBanner()}
     ${notifyNudge()}
@@ -586,13 +592,107 @@ function viewToday(){
       <div class="section-head"><h2>This week</h2><span class="small muted">Faithfulness, not results</span></div>
       <div class="tally"><div><b>${prayedN}</b><span>prayers</span></div><div><b>${convN}</b><span>conversations</span></div><div><b>${mealN}</b><span>meals &amp; service</span></div><div><b>${invN}</b><span>invites</span></div></div>
     </section>
-    <section class="card stack">
+    ${twEnabled() ? twEntry() : `<section class="card stack">
       <div><h3>Weekly review</h3><p class="small muted" style="margin:4px 0 0">${isSun ? "It's Sunday. " : ""}Five minutes: who's been quiet, what God answered, and three steps for the week.${S.meta.reviewAt ? " Last done " + esc(fmtDate(S.meta.reviewAt)) + "." : ""}</p></div>
       <div><button class="btn small" data-act="review">Start review</button></div>
-    </section>
+    </section>`}
     ${storageNote()}
   </div>`;
 }
+/* ---------- Tend the Week: the planner ---------- */
+// Preview switch (Settings) until the planner is finished; saved on this phone only.
+const TW_PREVIEW_KEY = "tend-tw-preview";
+function twEnabled(){ try { return localStorage.getItem(TW_PREVIEW_KEY) === "1"; } catch(_) { return false; } }
+const TW_SEQ = ["pause","back","focus","beyond","week","prayer","done"];
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// S.tw is the open planner: { weekOf, screen, focusIdx, pauseReady }. The plan itself lives in meta.weekPlans.
+const twPlan = () => S.tw ? weekPlan(S.tw.weekOf, true) : null;
+const twFocus = () => realPeople().filter(p => p.focus);
+const twWeekLabel = weekOf => weekOf === mondayOf(tzNow().date) ? "this week" : "the week of " + fmtDate(weekOf);
+function twOpen(){
+  const weekOf = planWeekOf(); const p = weekPlan(weekOf, true);
+  const r = !p.completedAt && p.resumeAt && TW_SEQ.includes(p.resumeAt.screen) && p.resumeAt.screen !== "done" ? p.resumeAt : null;
+  S.tw = { weekOf, screen:"pause", focusIdx:0, pauseReady:false };
+  closeSheet(); twGo(r ? r.screen : "pause", r ? Math.min(r.focusIdx || 0, Math.max(0, twFocus().length - 1)) : 0);
+}
+function twGo(screen, focusIdx = 0){
+  const tw = S.tw; tw.screen = screen; tw.focusIdx = focusIdx;
+  const p = twPlan(); if (screen !== "done"){ p.resumeAt = { screen, focusIdx }; saveWeekPlanSoon(p); }
+  render(); window.scrollTo(0, 0);
+  if (screen === "pause" && !tw.pauseReady) setTimeout(() => { if (S.tw !== tw) return; tw.pauseReady = true; if (tw.screen === "pause") render(); }, reduceMotion() ? 0 : 2500);
+}
+function twClose(){
+  const p = twPlan(); const done = S.tw.screen === "done" || (p && p.completedAt);
+  if (p) saveWeekPlan(p);
+  S.tw = null; render(); window.scrollTo(0, 0);
+  if (!done) toast("Saved. Pick up where you left off from Today.");
+}
+function twNext(){
+  const tw = S.tw;
+  if (tw.screen === "focus" && tw.focusIdx < twFocus().length - 1) return twGo("focus", tw.focusIdx + 1);
+  const i = TW_SEQ.indexOf(tw.screen); if (i < TW_SEQ.length - 1) twGo(TW_SEQ[i + 1]);
+}
+function twBack(){
+  const tw = S.tw;
+  if (tw.screen === "focus" && tw.focusIdx > 0) return twGo("focus", tw.focusIdx - 1);
+  const i = TW_SEQ.indexOf(tw.screen);
+  if (i <= 0) return twClose();
+  const prev = TW_SEQ[i - 1];
+  twGo(prev, prev === "focus" ? Math.max(0, twFocus().length - 1) : 0);
+}
+// Today: the glowing card shows in the planning window (or whenever a draft is waiting).
+function twTodayCard(){
+  if (!twEnabled() || S.examples) return "";
+  const p = weekPlan(planWeekOf()); const draft = p && !p.completedAt;
+  if (!draft && !(inPlanWindow() && !(p && p.completedAt))) return "";
+  return `<button class="tw-card" data-act="tw-start">
+      <span class="kick">Tend the Week</span>
+      <span class="ttl">${draft ? "Pick up where you left off" : "Your week is ready to plan"}</span>
+      <span class="sub">Your Focus 5, next steps, and who else is on your heart. About 6 minutes.</span>
+      <span class="go">${draft ? "Continue" : "Start"} →</span></button>`;
+}
+// Today: always-available entry (where Weekly review used to be).
+function twEntry(){
+  const w = planWeekOf(); const p = weekPlan(w);
+  const label = p && p.completedAt ? "Edit this week's plan" : p ? "Continue planning" : "Plan the week";
+  return `<section class="card stack">
+      <div><h3>Tend the Week</h3><p class="small muted" style="margin:4px 0 0">Your Focus 5, next steps, and a prayer rotation for ${esc(twWeekLabel(w))}. About 6 minutes.</p></div>
+      <div><button class="btn small" data-act="tw-start">${label}</button></div>
+    </section>`;
+}
+function viewPlanner(){
+  const tw = S.tw; const cur = TW_SEQ.indexOf(tw.screen); const nF = twFocus().length;
+  const frac = k => k === "focus" && nF ? (tw.focusIdx + 1) / nF : 1;
+  const segs = TW_SEQ.map((k, i) => `<span class="tw-seg"><i style="width:${i < cur ? 100 : i > cur ? 0 : Math.round(frac(k) * 100)}%"></i></span>`).join("");
+  let next = "Continue", dis = false;
+  if (tw.screen === "pause"){ next = "I'm ready"; dis = !tw.pauseReady; }
+  if (tw.screen === "back") next = "Start with my Focus 5";
+  if (tw.screen === "focus") next = tw.focusIdx < nF - 1 ? "Next: " + first(twFocus()[tw.focusIdx + 1].name) : "Beyond the Five";
+  if (tw.screen === "beyond") next = "Shape the week";
+  if (tw.screen === "week") next = "Prayer rotation";
+  if (tw.screen === "prayer") next = "Finish planning";
+  return `<div class="tw">
+    <div class="tw-top"><div class="tw-prog" role="progressbar" aria-label="Planning, step ${cur + 1} of ${TW_SEQ.length}" aria-valuemin="1" aria-valuemax="${TW_SEQ.length}" aria-valuenow="${cur + 1}">${segs}</div>
+      <button class="tw-close" data-act="tw-close" aria-label="Close. Your place is saved.">×</button></div>
+    <div class="tw-body">${(TW_SCREENS[tw.screen] || twSoon)()}</div>
+    ${tw.screen === "done" ? "" : `<div class="tw-foot"><div class="tw-foot-in"><button class="btn ghost" data-act="tw-back">Back</button><button class="btn next" data-act="tw-next" ${dis ? "disabled" : ""}>${esc(next)}</button></div></div>`}
+  </div>`;
+}
+// Screens still being built show a short placeholder so the walk-through can be tried end to end.
+function twSoon(){
+  const names = { back:"Look back", focus:"Focus 5", beyond:"Beyond the Five", week:"Shape the week", prayer:"Prayer rotation", done:"Your week is planned" };
+  return `<div class="stack"><div><div class="eyebrow">Tend the Week</div><h2>${esc(names[S.tw.screen] || "")}</h2></div>
+    <div class="card empty">This step is still being built. It's coming in the next update.</div>
+    ${S.tw.screen === "done" ? `<div><button class="btn" data-act="tw-close">Back to Today</button></div>` : ""}</div>`;
+}
+const TW_SCREENS = {
+  pause: () => `<div class="tw-pause">
+      <div class="eyebrow">Before you plan</div>
+      <div><blockquote class="tw-verse">“Walk in wisdom toward them that are without, redeeming the time.”</blockquote><div class="vref muted">Colossians 4:5</div></div>
+      <p class="tw-prayer">Take a moment to pray, asking: <b>“Lord, who do you want me to love this week?”</b></p>
+    </div>`
+};
+
 /* Week ahead: the next 7 days at a glance */
 function weekAhead(){
   const t = today(); const days = [0,1,2,3,4,5,6].map(i => addDays(t, i)); const end = days[6];
@@ -1257,6 +1357,11 @@ document.addEventListener("click", async e => {
       S.ui.circle = p.circle; S.ui.stageFilter = "All"; savePerson(p); render(); window.scrollTo(0,0); break; }
     case "hide-examples": S.meta.hideExamples = true; saveMeta(); render(); break;
     case "review": reviewSheet(); break;
+    case "tw-start": twOpen(); break;
+    case "tw-close": twClose(); break;
+    case "tw-next": if (S.tw) twNext(); break;
+    case "tw-back": if (S.tw) twBack(); break;
+    case "toggle-tw": { const on = !twEnabled(); try { localStorage.setItem(TW_PREVIEW_KEY, on ? "1" : "0"); } catch(_){} settingsSheet(); render(); toast(on ? "Tend the Week is on. Look for it on Today." : "Tend the Week preview is off"); break; }
     case "quiet": quietSheet(); break;
     case "quiet-off": S.meta.quietUntil = null; saveMeta(); closeSheet(); toast("Quiet mode off"); render(); break;
     case "ai-fill": aiFill(el); break;
