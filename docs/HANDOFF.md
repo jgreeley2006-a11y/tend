@@ -70,8 +70,8 @@ Once a day at the user's chosen `reminder_time` (default 07:30 in their timezone
 
 If there's nothing to say and no verse, it stays silent. Users can turn it off (`meta.data.dailySummary = false`) or pause it (`meta.data.quietUntil` = `"on"` or a date). The summary message must match what the **Today screen** shows — the server's `buildMessage()` mirrors those rules, so keep them in sync if you change either.
 
-### Daily verses
-54 verses in the `verses` table, rotating one per day starting Jan 1, 2026. **Planned (paused):** switch to the ESV translation.
+### Daily verses and devos
+78 verses in the `verses` table (24 added Oct 7), rotating one per day starting Jan 1, 2026. Each verse has a short devo in `devotionals` (same `n`), shown as the "Today's devo" card at the top of Today; see `docs/TEND_DAILY_DEVO_SPEC.md`. The app's `verseToday()`/`devoForToday()` and the server's `verseFor()` use the same rule with the verse count, so the devo always matches the morning push's verse. **Planned (paused):** switch to the ESV translation.
 
 ### Church family tab
 A separate tab under **People** for getting to know existing church members you don't know well yet. People with `circle: "family"`, shown in amber; the evangelism side stays green.
@@ -111,7 +111,7 @@ Policy: **own people** — `ALL` where `auth.uid() = user_id`.
 | column | type | notes |
 |---|---|---|
 | `user_id` | uuid PK → auth.users | |
-| `data` | jsonb | `dailySummary`, `hideExamples`, `kind`, `quietUntil`, `reviewAt`, `meetupDefaults`, `tasks[]` (standalone tasks), `weekPlans` (Tend the Week plans keyed by Monday; latest 12; shape in the planner spec §6) |
+| `data` | jsonb | `dailySummary`, `hideExamples`, `kind`, `quietUntil`, `reviewAt`, `meetupDefaults`, `tasks[]` (standalone tasks), `devoReadOn` (`YYYY-MM-DD` the user last tapped Amen on Today's devo), `weekPlans` (Tend the Week plans keyed by Monday; latest 12; shape in the planner spec §6) |
 | `notify_enabled` | bool | default false; only these users are processed by the scheduler |
 | `reminder_time` | text `HH:MM` | default `07:30` |
 | `timezone` | text IANA | default `America/New_York` |
@@ -146,6 +146,9 @@ The edge function "claims" a key via upsert with `ignoreDuplicates`; if nothing 
 ### `verses`
 `n` int PK, `ref` text, `text` text. Policy: any signed-in user can read.
 
+### `devotionals`
+`n` int PK → `verses.n`, `title`, `body` (paragraphs split by a blank line), `today`, `pray`, `updated_at`. Policy: any signed-in user can read (no writes from the app).
+
 ### `calendar_feeds`
 One private token per user for the subscribable meetup calendar (`meetup-calendar` function). Policy: own row.
 
@@ -156,6 +159,8 @@ One private token per user for the subscribable meetup calendar (`meetup-calenda
 4. `20261001191107_tend_calendar_feeds`
 5. `tend_cron_secret_in_vault` — Vault secret `tend_cron_secret` + `public.tend_check_cron_secret(text)` (service role only)
 6. `tend_reminders_cron_from_vault` — the `tend-reminders` cron job, reading its header from Vault
+7. `20261007153712_tend_daily_devos_schema_and_new_verses` — verses 54–77 + the `devotionals` table
+8. `20261007153804_tend_daily_devos_0_25`, `…153849_tend_daily_devos_26_51`, `…153939_tend_daily_devos_52_77` — the devo text
 
 ---
 
@@ -266,6 +271,7 @@ Two entry points:
 | Tend the Week phase 2: Sunday nudge, Wednesday check-in, Saturday reflection pushes | Next |
 | Meetups with night-before / morning-of / +6h follow-up reminders, each editable/deletable | Live |
 | Church family tab under People (amber) | Live |
+| Today's devo card (`docs/TEND_DAILY_DEVO_SPEC.md`) | Built Oct 7 |
 | Daily verses → ESV | Paused |
 | Church/leader hierarchy | Not planned for now |
 | Gather tester feedback and track sign-ups | Ongoing |
