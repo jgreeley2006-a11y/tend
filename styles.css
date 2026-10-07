@@ -205,6 +205,24 @@ label.f{min-width:0}
 .verse blockquote{margin:8px 0 12px;font-family:var(--serif);font-size:19px;line-height:1.4}
 .verse .vref{font-weight:600;font-size:13px}
 .verse .linkbtn{color:inherit;text-decoration:underline}
+/* Today's devo: card on Today, full devo in a sheet */
+.devo-card{display:flex;flex-direction:column;gap:4px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow)}
+.devo-card .eyebrow{color:var(--accent)}
+.devo-card .ttl{font-family:var(--serif);font-size:22px;font-weight:600;line-height:1.2;color:var(--ink)}
+.devo-card .vref{font-size:13.5px;color:var(--ink-3)}
+.devo-card.read{flex-direction:row;align-items:center;gap:10px;padding:11px 16px;box-shadow:none;font-size:14px;color:var(--ink-2)}
+.devo-card.read .grow{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.devo-check{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:13px;font-weight:700}
+.devo .eyebrow{color:var(--accent)}
+.devo h2{font-size:27px;line-height:1.15;margin-top:-6px}
+.devo p{margin:0;font-size:16px;line-height:1.6}
+.devo-verse{margin:4px 0;padding:14px 16px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 12px 12px 0}
+.devo-verse blockquote{margin:0;font-family:var(--serif);font-size:18.5px;line-height:1.45;color:var(--ink)}
+.devo-verse figcaption{margin-top:8px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.devo-today{padding:12px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
+.devo-today b{color:var(--accent)}
+.devo-pray b{color:var(--ink-2)}
+.devo .btn{margin-top:6px}
 .tl .when.row{gap:8px}
 .tl-edit{font-size:12.5px}
 

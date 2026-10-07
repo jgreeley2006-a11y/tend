@@ -591,6 +591,7 @@ function viewToday(){
   <div class="top"><div><div class="date">${esc(new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"}))}</div><h1>${hello}</h1></div>
     <div class="top-actions"><button class="iconbtn" data-act="quiet">${quiet ? "Quiet on" : "Quiet mode"}</button><button class="iconbtn gear" data-act="settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div></div>
   <div class="stack-lg">
+    ${devoCard()}
     ${twTodayCard()}
     ${(v => v ? `<section class="verse"><div class="eyebrow">Today's verse</div><blockquote>${esc(v.text)}</blockquote><div class="row spread"><span class="vref">${esc(v.ref)} · KJV</span><button class="linkbtn" data-copy="${esc(v.text + " (" + v.ref + ", KJV)")}">Copy</button></div></section>` : "")(verseToday())}
     ${exampleBanner()}
@@ -617,6 +618,34 @@ function viewToday(){
     ${twEntry()}
     ${storageNote()}
   </div>`;
+}
+/* ---------- Today's devo ---------- */
+// Full card until you tap Amen; then a one-line card for the rest of the day (tap to reread).
+function devoCard(){
+  const d = devoForToday(); if (!d) return "";
+  if (S.meta.devoReadOn === today()) return `<button class="devo-card read" data-act="devo-open"><span class="devo-check" aria-hidden="true">✓</span><span class="grow">Today's devo · ${esc(d.title)}</span></button>`;
+  return `<button class="devo-card" data-act="devo-open">
+      <span class="eyebrow">Today's devo · 1 min</span>
+      <span class="ttl">${esc(d.title)}</span>
+      <span class="vref">${esc(d.verse.ref)}</span></button>`;
+}
+function devoSheet(){
+  const d = devoForToday(); if (!d) return;
+  const paras = String(d.body || "").split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+  openSheet(`<div class="stack devo">
+    <div class="eyebrow">Today's devo</div>
+    <h2>${esc(d.title)}</h2>
+    <figure class="devo-verse"><blockquote>${esc(d.verse.text)}</blockquote><figcaption>${esc(d.verse.ref)} · KJV</figcaption></figure>
+    ${paras.map(x => `<p>${esc(x)}</p>`).join("")}
+    ${d.today ? `<p class="devo-today"><b>Today:</b> ${esc(d.today)}</p>` : ""}
+    ${d.pray ? `<p class="devo-pray"><b>Pray:</b> ${esc(d.pray)}</p>` : ""}
+    <button class="btn" data-act="devo-amen">Amen</button>
+  </div>`);
+}
+function devoAmen(){
+  closeSheet();
+  const t = today(); if (S.meta.devoReadOn === t) return;
+  S.meta.devoReadOn = t; saveMeta(); render();
 }
 /* ---------- Tend the Week: the planner ---------- */
 const TW_SEQ = ["pause","back","focus","beyond","week","prayer","done"];
@@ -1854,6 +1883,8 @@ document.addEventListener("click", async e => {
     case "back": S.ui.personId = null; S.ui.open = null; render(); break;
     case "close": S.ui.open = null; render(); break;
     case "close-sheet": closeSheet(); render(); break;
+    case "devo-open": devoSheet(); break;
+    case "devo-amen": devoAmen(); break;
     case "open-log": S.ui.open = "log"; S.ui.logDate = null; render(); $("#lg-shared")?.focus(); break;
     case "open-task": addTaskSheet({ pid: cur()?.id }); break;
     case "open-meetup": addTaskSheet({ pid: cur()?.id, kind:"meetup" }); break;
