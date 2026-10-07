@@ -243,11 +243,37 @@ async function loadFromServer(){
 function loadVerses(){
   try { const c = JSON.parse(localStorage.getItem("tend-verses") || "null"); if (c && c.length) S.verses = c; } catch(_){}
   sb.from("verses").select("n,ref,text").order("n").then(({ data }) => { if (data && data.length){ S.verses = data; try { localStorage.setItem("tend-verses", JSON.stringify(data)); } catch(_){} softRender(); } });
+  loadDevos();
 }
-function verseToday(){
-  const v = S.verses || []; if (!v.length) return null;
-  const t = today(); const n = Math.floor((Date.UTC(+t.slice(0,4), +t.slice(5,7) - 1, +t.slice(8,10)) - Date.UTC(2026,0,1)) / 86400000);
-  return v[((n % v.length) + v.length) % v.length];
+// Daily devos rarely change, so keep them on the phone and only download them again
+// when the table's row count or newest updated_at is different from what we saved.
+function loadDevos(){
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("tend-devos") || "null"); if (saved && saved.list && saved.list.length) S.devos = saved.list; } catch(_){}
+  sb.from("devotionals").select("updated_at", { count:"exact" }).order("updated_at", { ascending:false }).limit(1).then(({ data, count, error }) => {
+    if (error || !data || !data.length) return;
+    const version = count + "|" + data[0].updated_at;
+    if (saved && saved.version === version && S.devos) return;
+    sb.from("devotionals").select("n,title,body,today,pray").order("n").then(({ data: list }) => {
+      if (!list || !list.length) return;
+      S.devos = list; try { localStorage.setItem("tend-devos", JSON.stringify({ version, list })); } catch(_){}
+      softRender();
+    });
+  });
+}
+// The verse (and devo) of the day: days since Jan 1, 2026, wrapped around the number of verses.
+// Same rule as verseFor() in send-reminders, so Today matches the morning push.
+function dayVerseN(){
+  const count = (S.verses || []).length; if (!count) return null;
+  const t = today(); const dayN = Math.floor((Date.parse(t + "T00:00:00Z") - Date.UTC(2026,0,1)) / 86400000);
+  return ((dayN % count) + count) % count;
+}
+function verseToday(){ const i = dayVerseN(); return i === null ? null : S.verses[i]; }
+// Today's devo, paired with its verse by n. Null until both have loaded at least once.
+function devoForToday(){
+  const verse = verseToday(); if (!verse) return null;
+  const devo = (S.devos || []).find(d => d.n === verse.n);
+  return devo ? Object.assign({ verse }, devo) : null;
 }
 async function boot(){
   const C = window.TEND_CONFIG || {};
