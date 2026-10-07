@@ -637,10 +637,29 @@ function devoSheet(){
     <h2>${esc(d.title)}</h2>
     <figure class="devo-verse"><blockquote>${esc(d.verse.text)}</blockquote><figcaption>${esc(d.verse.ref)} · KJV</figcaption></figure>
     ${paras.map(x => `<p>${esc(x)}</p>`).join("")}
-    ${d.today ? `<p class="devo-today"><b>Today:</b> ${esc(d.today)}</p>` : ""}
+    ${!d.today ? "" : (go => go
+      ? `<button class="devo-today tap" data-act="devo-go" data-devo-go="${go}"><b>Today:</b> ${esc(d.today)} <span class="devo-arrow" aria-hidden="true">→</span></button>`
+      : `<p class="devo-today"><b>Today:</b> ${esc(d.today)}</p>`)(devoGoFor(d.today))}
     ${d.pray ? `<p class="devo-pray"><b>Pray:</b> ${esc(d.pray)}</p>` : ""}
     <button class="btn" data-act="devo-amen">Amen</button>
   </div>`);
+}
+// When a devo's Today: line names something in the app, tapping it takes you there.
+const DEVO_GO = [
+  [/add them to tend/i, "person"],
+  [/set (up )?a meetup/i, "meetup"],
+  [/add an invite next step/i, "task"],
+  [/church family tab/i, "family"],
+  [/focus 5|prayer list/i, "prayer"]
+];
+const devoGoFor = text => (DEVO_GO.find(([re]) => re.test(text || "")) || [])[1] || null;
+function devoGo(where){
+  if (where === "person") return addSheet("reach");
+  if (where === "meetup") return addTaskSheet({ kind:"meetup" });
+  if (where === "task") return addTaskSheet({});
+  closeSheet();
+  if (where === "family"){ S.ui.circle = "family"; S.ui.stageFilter = "All"; go("people"); }
+  else if (where === "prayer") go("prayer");
 }
 function devoAmen(){
   closeSheet();
@@ -1885,6 +1904,7 @@ document.addEventListener("click", async e => {
     case "close-sheet": closeSheet(); render(); break;
     case "devo-open": devoSheet(); break;
     case "devo-amen": devoAmen(); break;
+    case "devo-go": devoGo(d.devoGo); break;
     case "open-log": S.ui.open = "log"; S.ui.logDate = null; render(); $("#lg-shared")?.focus(); break;
     case "open-task": addTaskSheet({ pid: cur()?.id }); break;
     case "open-meetup": addTaskSheet({ pid: cur()?.id, kind:"meetup" }); break;

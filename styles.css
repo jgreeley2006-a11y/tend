@@ -221,6 +221,9 @@ label.f{min-width:0}
 .devo-verse figcaption{margin-top:8px;font-size:13px;font-weight:600;color:var(--ink-2)}
 .devo-today{padding:12px 14px;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
 .devo-today b{color:var(--accent)}
+button.devo-today{display:block;width:100%;text-align:left;font-size:16px;line-height:1.6;color:var(--ink)}
+.devo-today.tap{border-color:var(--accent)}
+.devo-arrow{color:var(--accent);font-weight:700;white-space:nowrap}
 .devo-pray b{color:var(--ink-2)}
 .devo .btn{margin-top:6px}
 .tl .when.row{gap:8px}
