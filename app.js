@@ -530,11 +530,20 @@ function softRender(){
 }
 document.addEventListener("focusout", () => setTimeout(() => { if (S.dirty){ const a = document.activeElement; if (!a || !/INPUT|TEXTAREA|SELECT/.test(a.tagName)){ S.dirty = false; render(); } } }, 0));
 
+const REDUCED = () => !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+const SKELETON = `<div class="skel" aria-busy="true" aria-label="Opening your list"><i class="s-h"></i><i class="s-card"></i><i class="s-card"></i><i class="s-row"></i><i class="s-row"></i></div>`;
+// Draw the screen. A new screen fades in; a redraw of the same screen keeps your place on the page.
 function render(){
+  const y = window.scrollY; paint();
+  const key = S.mode + "|" + (S.tw ? "tw-" + S.tw.screen : S.ui.personId || S.ui.tab);
+  if (key !== render.key){ render.key = key; const app = $("#app"); app.classList.remove("fade"); void app.offsetWidth; app.classList.add("fade"); }
+  else if (window.scrollY !== y) window.scrollTo(0, y);
+}
+function paint(){
   const app = $("#app");
   const signedIn = S.mode === "db";
   $("#nav").hidden = !signedIn; $("#fab").hidden = !signedIn;
-  if (S.mode === "loading"){ app.innerHTML = `<div class="loading">Opening your list…</div>`; return; }
+  if (S.mode === "loading"){ app.innerHTML = SKELETON; return; }
   if (S.mode === "signin"){ app.innerHTML = viewSignIn(); return; }
   if (S.tw){ app.innerHTML = viewPlanner(); $("#nav").hidden = true; $("#fab").hidden = true; document.body.dataset.planner = "1"; syncCircle("reach"); if (S.tw.screen === "beyond") twBindDeck(); return; }
   delete document.body.dataset.planner;
@@ -563,6 +572,10 @@ function storageNote(){ return `<p class="sync" id="sync" role="status">${esc(S.
 function stageTag(p){ return `<span class="stage${isFam(p) ? " fam" : ""}">${esc(levelShort(p)[levelOf(p)])}</span>`; }
 function nameLink(p){ return `<button class="who${isFam(p) ? " fam" : ""}" data-open="${esc(p.id)}">${esc(p.name)}</button>`; }
 
+// An empty screen: one warm line, one sentence, and (sometimes) the one thing to do next.
+function emptyState(title, sub, btn, attrs){
+  return `<div class="empty-state"><h3>${esc(title)}</h3>${sub ? `<p>${esc(sub)}</p>` : ""}${btn ? `<button class="btn small" ${attrs}>${esc(btn)}</button>` : ""}</div>`;
+}
 /* Today */
 function todaySteps(){
   const t = today(); const steps = [];
@@ -603,7 +616,7 @@ function viewToday(){
         <div class="step">
           ${s.task ? `<button class="dot" aria-label="Mark done" data-done-task="${esc(s.task.id)}" data-pid="${esc(s.task.personId||"")}"></button>` : `<span class="dot" style="border-color:var(--gold)"></span>`}
           <div class="grow"><div class="kind">${esc(s.kind)}</div><div class="title">${s.task ? `<button class="tasktitle" data-edit-task="${esc(s.task.id)}" data-pid="${esc(s.task.personId||"")}">${taskTitle(s.task)}</button>` : esc(s.title)}</div>${s.person ? `<div class="small">${nameLink(s.person)}</div>`:""}</div>
-        </div>`).join("")}</div>` : `<div class="empty">Nothing pressing today. Pray for your Focus 5 and enjoy the people God put around you.</div>`}</div>
+        </div>`).join("")}</div>` : emptyState("Nothing pressing today.", "Pray for your Focus 5 and enjoy the people God put around you.")}</div>
     </section>`}
     ${viewWeek()}
     ${(pt => pt.plan && !pt.list.length ? "" : `<section>
@@ -1363,7 +1376,9 @@ function viewPeople(){
       <button class="pitem" data-open="${esc(p.id)}">${avatar(p)}
         <div class="grow"><div class="pname">${esc(p.name)} ${p.focus?`<span class="star" aria-label="Focus 5">★</span>`:""} ${p.example?`<span class="ex">Example</span>`:""}</div>
         <div class="meta">${esc(p.howMet||"")}${p.howMet?" · ":""}${esc(lastContactLabel(p) || "No contact logged")}</div></div>${stageTag(p)}</button>`; }).join("")}</div>`
-      : `<div class="card empty">${inCircle.length ? "No one matches that search." : fam ? "No church family here yet. After Sunday, tap Add person for someone you'd like to know better. Already have someone on your list who joined the church? Open them and tap Move to Church family." : "No one here yet. Tap Add person after your next conversation."}</div>`}
+      : inCircle.length ? `<div class="card empty">No one matches that search.</div>`
+      : `<div class="card">${fam ? emptyState("Who don't you know yet?", "After Sunday, add someone you'd like to know better. Already have someone on your list who joined the church? Open them and tap Move to Church family.", "Add a person", `data-act="add-person"`)
+        : emptyState("Who is God putting in your path?", "Add the first person you want to pray for and reach.", "Add a person", `data-act="add-person"`)}</div>`}
     ${storageNote()}
   </div>`;
 }
@@ -1652,17 +1667,30 @@ function viewTasks(){
     ${exampleBanner()}
     <div class="row wrap"><button class="btn small" data-act="open-gtask">Add a task</button><button class="btn small ghost" data-act="open-gmeetup">${ICON_CAL} Plan a meetup</button></div>
     ${groups.filter(g=>g[1].length).map(([name, list]) => `<section><div class="section-head"><h2>${name}</h2></div>
-      <ul class="plain-list card">${list.map(x=>{ const p = x.personId?byId.get(x.personId):null; return `<li><button class="check" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark done"></button><div class="grow"><button class="tasktitle" data-edit-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}">${taskTitle(x)}</button><div class="meta">${p?nameLink(p)+" · ":""}${x.due?esc(fmtDay(x.due)):"No date"}${isMeetup(x)?(x.time||x.location?" · "+esc(meetupWhen(x)):""):x.remindAt?" · Reminder "+esc(fmtTime(x.remindAt)):""}</div></div></li>`; }).join("")}</ul></section>`).join("") || `<div class="card empty">No open tasks. Add a next step from anyone's page.</div>`}
+      <ul class="plain-list card">${list.map(x=>{ const p = x.personId?byId.get(x.personId):null; return `<li><button class="check" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark done"></button><div class="grow"><button class="tasktitle" data-edit-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}">${taskTitle(x)}</button><div class="meta">${p?nameLink(p)+" · ":""}${x.due?esc(fmtDay(x.due)):"No date"}${isMeetup(x)?(x.time||x.location?" · "+esc(meetupWhen(x)):""):x.remindAt?" · Reminder "+esc(fmtTime(x.remindAt)):""}</div></div></li>`; }).join("")}</ul></section>`).join("") || `<div class="card">${emptyState("No open tasks.", "Add a next step from anyone's page, or with the buttons above.")}</div>`}
     ${doneRecent.length ? `<section><div class="section-head"><h2>Done this week</h2></div><ul class="plain-list">${doneRecent.map(x=>`<li><button class="check on" data-toggle-task="${esc(x.id)}" data-pid="${esc(x.personId||"")}" aria-label="Mark not done">✓</button><div class="grow strike">${taskTitle(x)}</div></li>`).join("")}</ul></section>`:""}
   </div>`;
 }
 
 /* ---------- sheets ---------- */
 function openSheet(html){
-  $("#sheet-root").innerHTML = `<div class="scrim" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
+  const root = $("#sheet-root"); const out = $("#sheet-out"); if (out) out.innerHTML = "";
+  // "still": a sheet is already up and is only being redrawn, so don't slide it in again
+  root.innerHTML = `<div class="scrim${root.firstElementChild ? " still" : ""}" data-act="scrim"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div></div>`;
   const f = $("#sheet-root [data-autofocus]"); if (f) setTimeout(()=>f.focus(), 50);
 }
-function closeSheet(){ $("#sheet-root").innerHTML = ""; syncCircle(); }
+// The sheet being closed is moved aside to slide away, so the rest of the app can treat it as already gone.
+function closeSheet(){
+  const root = $("#sheet-root"); const scrim = root.firstElementChild;
+  if (scrim && !REDUCED()){
+    let out = $("#sheet-out"); if (!out){ out = document.createElement("div"); out.id = "sheet-out"; root.after(out); }
+    out.innerHTML = "";
+    scrim.classList.remove("still"); scrim.classList.add("closing"); scrim.removeAttribute("data-act"); scrim.inert = true;
+    scrim.querySelectorAll("[id]").forEach(n => n.removeAttribute("id"));
+    out.append(scrim); setTimeout(() => { if (scrim.parentNode === out) scrim.remove(); }, 200);
+  }
+  root.innerHTML = ""; syncCircle();
+}
 
 let addDraft = { how:"", circle:"reach" };
 function howChips(){
@@ -1840,7 +1868,15 @@ function quietSheet(){
 }
 
 /* ---------- actions ---------- */
-function toast(msg, ms){ const r = $("#toast-root"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toast.t); toast.t = setTimeout(()=>{ r.innerHTML=""; }, ms || 2600); }
+function toast(msg, ms){ const r = $("#toast-root"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toast.t); clearTimeout(toast.t2); toast.t = setTimeout(()=>{ const el = r.firstElementChild; if (el) el.classList.add("out"); toast.t2 = setTimeout(()=>{ r.innerHTML=""; }, 160); }, ms || 2600); }
+// Checking a task off: let the checkmark land before the list redraws.
+function checkOff(el, fn){
+  const row = el.closest(".step, li, .wk-row");
+  if (!row || el.classList.contains("on") || REDUCED()){ fn(); return; }
+  if (row.classList.contains("checking")) return;
+  row.classList.add("checking"); el.textContent = "✓"; setTimeout(fn, 230);
+}
+document.addEventListener("touchstart", () => {}, { passive:true }); // lets iPhone show pressed states
 function cur(){ return S.people.get(S.ui.personId); }
 function go(tab){ S.ui.tab = tab; S.ui.personId = null; S.ui.open = null; render(); window.scrollTo(0,0); }
 function openPerson(id){ S.ui.personId = id; S.ui.open = null; S.ui.hist = "All"; closeSheet(); render(); window.scrollTo(0,0); }
@@ -1871,8 +1907,8 @@ document.addEventListener("click", async e => {
   if (d.open){ openPerson(d.open); return; }
   if (d.filter){ S.ui.stageFilter = d.filter; render(); return; }
   if (d.prayed){ const p = S.people.get(d.prayed); p.prayed ||= []; const t = today(); if (p.prayed.includes(t)) p.prayed = p.prayed.filter(x=>x!==t); else { p.prayed.push(t); p.prayed = p.prayed.slice(-60); } savePerson(p); render(); return; }
-  if (d.doneTask){ toggleTask(d.pid || null, d.doneTask); return; }
-  if (d.toggleTask){ const pid = d.pid !== undefined ? (d.pid || null) : S.ui.personId; toggleTask(pid, d.toggleTask); return; }
+  if (d.doneTask){ checkOff(el, () => toggleTask(d.pid || null, d.doneTask)); return; }
+  if (d.toggleTask){ const pid = d.pid !== undefined ? (d.pid || null) : S.ui.personId; checkOff(el, () => toggleTask(pid, d.toggleTask)); return; }
   if (d.hist){ S.ui.hist = d.hist; render(); return; }
   if (d.wday){ S.ui.weekDay = S.ui.weekDay === d.wday ? null : d.wday; render(); return; }
   if (d.quicklog){ const p = cur(); if (!p) return; logQuick(p, d.quicklog); return; }
@@ -1900,6 +1936,7 @@ document.addEventListener("click", async e => {
 
   switch (d.act){
     case "back": S.ui.personId = null; S.ui.open = null; render(); break;
+    case "add-person": addSheet(); break;
     case "close": S.ui.open = null; render(); break;
     case "close-sheet": closeSheet(); render(); break;
     case "devo-open": devoSheet(); break;

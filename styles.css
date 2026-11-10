@@ -429,3 +429,62 @@ select.tw-sel{width:auto;padding:6px 10px;min-height:0}
 .tw-blessing{border-left:3px solid var(--accent);padding-left:14px}
 .tw-blessing p{margin:0;font-family:var(--serif);font-size:var(--fs-lg);line-height:1.35}
 .tw-blessing small{display:block;color:var(--ink-3);margin-top:6px;font-weight:600}
+
+/* ---------- Tap targets: at least ~44px to touch, without changing how big things look ---------- */
+.check,.step button.dot,.tw-rem button,.iconbtn-sm,.tw-close,.iconbtn,.pill-btn,.linkbtn,.back,.stagebar button,.btn.small{position:relative}
+.check::after,.step button.dot::after,.tw-rem button::after,.iconbtn-sm::after,.tw-close::after,.iconbtn::after,.pill-btn::after,.linkbtn::after,.back::after,.stagebar button::after,.btn.small::after,.switch::before{content:"";position:absolute}
+.check::after{inset:-12px}
+.step button.dot::after{inset:-11px}
+.tw-rem button::after{inset:-10px}
+.iconbtn-sm::after,.tw-close::after{inset:-5px}
+.iconbtn::after,.btn.small::after{inset:-4px 0}
+.pill-btn::after{inset:-6px 0}
+.linkbtn::after{inset:-10px -6px}
+.back::after{inset:-12px -10px}
+.stagebar button::after{inset:-18px 0}
+.switch::before{inset:-7px 0}
+.chip{min-height:38px;display:inline-flex;align-items:center}
+.btn.small{min-height:36px}
+
+/* ---------- Motion: short and quiet. All of it is switched off by the reduced-motion rule near the top. ---------- */
+.scrim{animation:scrim-in .2s ease-out}
+.sheet{animation:sheet-in .22s cubic-bezier(.2,.8,.2,1)}
+.scrim.still,.scrim.still .sheet{animation:none}
+.scrim.closing{pointer-events:none;animation:scrim-out .18s ease-in forwards}
+.scrim.closing .sheet{animation:sheet-out .18s ease-in forwards}
+@keyframes scrim-in{from{background-color:transparent}}
+@keyframes sheet-in{from{transform:translateY(100%)}}
+@keyframes scrim-out{to{background-color:transparent}}
+@keyframes sheet-out{to{transform:translateY(100%)}}
+.app.fade{animation:view-in .14s ease-out}
+@keyframes view-in{from{opacity:.35}}
+.btn,.pill-btn,.chip,.iconbtn,.fab,.devo-card,.tw-card,.wday{transition:transform .12s ease,background-color .12s ease,opacity .12s ease}
+.btn:active,.pill-btn:active,.chip:active,.iconbtn:active,.fab:active,.devo-card:active,.tw-card:active,.wday:active{transform:scale(.97)}
+.pitem:active{background:var(--surface-2)}
+.nav button:active{opacity:.6}
+.toast{animation:toast-in .18s ease-out;transition:opacity .15s}
+.toast.out{opacity:0}
+@keyframes toast-in{from{opacity:0;transform:translate(-50%,-8px)}}
+/* Checking something off */
+.checking{opacity:.6;transition:opacity .2s .05s}
+.checking .check,.checking .dot{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-size:var(--fs-xs);font-weight:700;animation:check-pop .22s ease-out}
+.checking .tasktitle{text-decoration:line-through}
+@keyframes check-pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}}
+
+/* ---------- Loading and empty states ---------- */
+.skel{display:flex;flex-direction:column;gap:var(--sp-4);padding-top:var(--sp-2)}
+.skel i{display:block;border-radius:var(--r-md);background:var(--surface-2);animation:skel 1.4s ease-in-out infinite}
+.skel .s-h{height:34px;width:55%}
+.skel .s-card{height:104px}
+.skel .s-row{height:58px}
+@keyframes skel{50%{opacity:.5}}
+.empty-state{display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);padding:var(--sp-5) var(--sp-4);text-align:center}
+.empty-state h3{font-size:var(--fs-lg)}
+.empty-state p{margin:0;color:var(--ink-3);max-width:36ch}
+.empty-state .btn{margin-top:var(--sp-2)}
+
+/* ---------- Quick log ---------- */
+.step .log-btn{align-self:center;flex:none}
+.ql-more summary{font-weight:600;font-size:var(--fs-sm);color:var(--accent);cursor:pointer;padding:var(--sp-1) 0}
+.ql-more .stack{margin-top:var(--sp-3)}
+.sheet .plist{max-height:50vh;overflow-y:auto}
