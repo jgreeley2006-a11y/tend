@@ -386,7 +386,18 @@ async function boot(){
     return;
   }
   sb = window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(e => console.warn(e));
+  if ("serviceWorker" in navigator){
+    navigator.serviceWorker.register("sw.js").catch(e => console.warn(e));
+    // A notification was tapped while Tend was already open
+    navigator.serviceWorker.addEventListener("message", e => {
+      if (!e.data || e.data.type !== "tend-open") return;
+      try { openReq = readOpen(new URL(e.data.url, location.href).search); } catch(_) { openReq = null; }
+      runOpen(false); if (openReq) setTimeout(() => runOpen(true), 4000);
+    });
+  }
+  // A notification opened Tend at a link: remember where to go, then tidy the address
+  openReq = readOpen(location.search);
+  if (openReq) try { history.replaceState(null, "", location.pathname); } catch(_){}
   const { data: { session } } = await sb.auth.getSession();
   if (!session){ S.mode = "signin"; let back = false; try { back = !!localStorage.getItem("tend-returning"); } catch(_){} S.signin = { step: back ? "signin" : "create" }; render(); return; }
   await startSession(session.user);
@@ -398,10 +409,11 @@ async function startSession(user){
   try { const raw = localStorage.getItem(cacheKey()); if (raw){ const d = JSON.parse(raw); (d.people||[]).forEach(p => S.people.set(p.id, p)); if (d.meta) S.meta = d.meta; if (d.settings) S.settings = d.settings; S.meta.tasks ||= [];
     // The saved copy of anything already in step with the server is our starting point for future merges.
     Object.entries(d.rev || {}).forEach(([id, stamp]) => { const doc = docOf(id); if (!doc) return; rev.set(id, stamp); if (!pending.set.has(id)) synced.set(id, JSON.stringify(doc)); });
-    S.mode = "db"; render(); } } catch(_){}
+    S.mode = "db"; render(); runOpen(false); } } catch(_){}
   loadVerses();
   try { await loadFromServer(); S.mode = "db"; softRender(); flushPending(); }
   catch(e){ console.warn(e); if (S.mode !== "db"){ S.mode = "db"; render(); } setSync("Offline. Showing what's saved on this phone."); }
+  runOpen(true);
   setTimeout(askContact, 300); // in case iPhone closed Tend while you were in Phone or Messages
 }
 window.addEventListener("online", () => { if (USER){ flushPending(); } });
@@ -409,6 +421,7 @@ document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState !== "visible" || !USER) return;
   flushPending();
   try { await loadFromServer(); softRender(); } catch(_){}
+  runOpen(true);
 });
 
 /* ---------- sign in (email + password; no email sending needed) ---------- */
@@ -723,7 +736,9 @@ function viewToday(){
         <div class="step">
           ${s.task ? `<button class="dot" aria-label="Mark done" data-done-task="${esc(s.task.id)}" data-pid="${esc(s.task.personId||"")}"></button>` : `<span class="dot" style="border-color:var(--gold)"></span>`}
           <div class="grow"><div class="kind">${esc(s.kind)}</div><div class="title">${s.task ? `<button class="tasktitle" data-edit-task="${esc(s.task.id)}" data-pid="${esc(s.task.personId||"")}">${taskTitle(s.task)}</button>` : esc(s.title)}</div>${s.person ? `<div class="small">${nameLink(s.person)}</div>`:""}</div>
+          ${s.person && (!s.task || s.kind === "How did it go?") ? `<button class="pill-btn log-btn" data-qlog="${esc(s.person.id)}"${s.task ? ` data-meet="${esc(s.task.id)}"` : ""}>Log</button>` : ""}
         </div>`).join("")}</div>` : emptyState("Nothing pressing today.", "Pray for your Focus 5 and enjoy the people God put around you.")}</div>
+      ${people().length ? `<div style="margin-top:var(--sp-3)"><button class="btn small ghost" data-act="log-pick">Log a conversation</button></div>` : ""}
     </section>`}
     ${viewWeek()}
     ${(pt => pt.plan && !pt.list.length ? "" : `<section>
@@ -1709,6 +1724,49 @@ function suggestQuestion(p, last, openPrayers){
   const byStage = ["\"What's been the best part of your week?\"","\"What was growing up like for you?\"","\"Where are you at with God these days?\"","\"What questions are still on your mind?\"","\"What's God been showing you lately?\"","\"Who in your life could use what you've found?\""];
   return isFam(p) ? DEPTH_QUESTIONS[depthOf(p)] : byStage[p.stage||0];
 }
+/* Quick log: record a conversation from anywhere in a few taps. */
+let ql = null;
+function quickLogSheet(pid, o = {}){
+  const p = S.people.get(pid); if (!p) return;
+  ql = { pid, type: o.type || "Text", meet: o.meet || null };
+  syncCircle(isFam(p) ? "family" : "reach");
+  openSheet(`<form class="stack" data-form="qlog" autocomplete="off">
+    <h2>${ql.meet ? "How did it go?" : "Log a conversation"}</h2>
+    <p class="small muted" style="margin:0">With ${esc(p.name)}${ql.meet ? " · " + esc(ql.meet.title) : ""}</p>
+    <div class="chips wrap" role="group" aria-label="Type">${LOG_TYPES.map(x => `<button type="button" class="chip" data-logtype="${esc(x)}" aria-pressed="${x === ql.type}">${esc(x)}</button>`).join("")}</div>
+    <label class="f">What did ${esc(first(p.name))} share? <span class="hint">Optional. You can add it later.</span><textarea class="t" id="ql-shared" placeholder="Their words, their news, what's on their heart"></textarea></label>
+    <details class="ql-more"><summary>More</summary><div class="stack">
+      <label class="f">Date<input class="t" id="ql-date" type="date" value="${esc(o.date || today())}"></label>
+      <label class="f">What do they care about?<input class="t" id="ql-cares" placeholder="e.g. Being a good dad"></label>
+      <label class="f">Questions they asked<input class="t" id="ql-q" placeholder="e.g. Why do you pray before meals?"></label>
+      <label class="f">Prayer need<input class="t" id="ql-prayer" placeholder="Adds to their prayer list"></label></div></details>
+    <div class="row"><button class="btn">Save</button><button type="button" class="btn ghost" data-act="close-sheet">Cancel</button></div>
+  </form>`);
+}
+// Quick log for a meetup: logging it also marks the meetup done.
+function quickLogMeetup(pid, tid){
+  const { t } = taskRef(pid, tid);
+  quickLogSheet(pid, t && isMeetup(t) ? { type:"In person", date: t.due && t.due <= today() ? t.due : today(), meet: t.done ? null : { pid, id: t.id, title: t.title } } : {});
+}
+function logPickSheet(){
+  const list = people().slice().sort((a,b) => (b.focus?1:0)-(a.focus?1:0) || (lastContact(b)||"").localeCompare(lastContact(a)||"") || a.name.localeCompare(b.name));
+  openSheet(`<div class="stack"><h2>Log a conversation</h2><p class="small muted" style="margin:0">Who was it with?</p>
+    <div class="plist">${list.map(p => `<button class="pitem" data-qlog="${esc(p.id)}">${avatar(p)}<div class="grow"><div class="pname">${esc(p.name)} ${p.focus?`<span class="star" aria-label="Focus 5">★</span>`:""}</div><div class="meta">${esc(lastContactLabel(p) || "No contact logged")}</div></div></button>`).join("")}</div>
+    <div class="row"><button class="btn ghost" data-act="close-sheet">Cancel</button></div></div>`);
+}
+/* Notifications open the right place. The link looks like ?open=log&p=<person id>&t=<task id> (or open=task). */
+let openReq = null;
+function readOpen(search){ const q = new URLSearchParams(search || ""); const open = q.get("open"); return open ? { open, p: q.get("p") || null, t: q.get("t") || null } : null; }
+// last = this is the final try (the server has answered, or can't be reached); give up quietly if the person or task is gone.
+function runOpen(last){
+  const r = openReq; if (!r || S.mode !== "db") return;
+  if (S.tw){ openReq = null; return; }
+  const p = r.p ? S.people.get(r.p) : null; const t = r.t ? taskRef(r.p, r.t).t : null;
+  if ((r.p && !p) || (r.t && !t)){ if (last) openReq = null; return; }
+  openReq = null;
+  if (r.open === "log" && p){ if (S.ui.personId && S.ui.personId !== p.id) go("today"); if (t) quickLogMeetup(p.id, t.id); else quickLogSheet(p.id); }
+  else if (r.open === "task" && t){ if (p) openPerson(p.id); else go("tasks"); editTaskSheet(r.p, t.id); }
+}
 function logForm(p){
   return `<form class="card stack" data-form="log">
     <div class="chips wrap" role="group" aria-label="Type">${LOG_TYPES.map((x,i)=>`<button type="button" class="chip" data-logtype="${esc(x)}" aria-pressed="${i===0}">${esc(x)}</button>`).join("")}</div>
@@ -2011,6 +2069,7 @@ document.addEventListener("click", async e => {
   if (el.id === "fab"){ addSheet(); return; }
   if (d.circle){ S.ui.circle = d.circle; S.ui.stageFilter = "All"; render(); return; }
   if (d.addCircle){ const nm = $("#ad-name")?.value || ""; const nt = $("#ad-note")?.value || ""; addSheet(d.addCircle); $("#ad-name").value = nm; $("#ad-note").value = nt; return; }
+  if (d.qlog){ if (d.meet) quickLogMeetup(d.qlog, d.meet); else quickLogSheet(d.qlog); return; }
   if (d.open){ openPerson(d.open); return; }
   if (d.filter){ S.ui.stageFilter = d.filter; render(); return; }
   if (d.prayed){ const p = S.people.get(d.prayed); p.prayed ||= []; const t = today(); if (p.prayed.includes(t)) p.prayed = p.prayed.filter(x=>x!==t); else { p.prayed.push(t); p.prayed = p.prayed.slice(-60); } savePerson(p); render(); return; }
@@ -2044,6 +2103,9 @@ document.addEventListener("click", async e => {
   switch (d.act){
     case "back": S.ui.personId = null; S.ui.open = null; render(); break;
     case "add-person": addSheet(); break;
+    case "log-pick": logPickSheet(); break;
+    case "ql-next": addTaskSheet({ pid: S.lastLogged }); break;
+    case "ql-open": openPerson(S.lastLogged); break;
     case "close": S.ui.open = null; render(); break;
     case "close-sheet": closeSheet(); render(); break;
     case "devo-open": devoSheet(); break;
@@ -2194,6 +2256,19 @@ document.addEventListener("submit", e => {
     const tm = md.remindAt; const t = { id:uid("t"), title: md.title.trim(), due: md.due || (tm ? today() : null), remindAt: tm || null, done:false };
     if (md.withPid){ const q = S.people.get(md.withPid); (q.tasks ||= []).push(t); savePerson(q); } else { S.meta.tasks.push(t); saveMeta(); }
     md = null; closeSheet(); render(); remindNote(tm, t.due);
+    return;
+  }
+  if (kind === "qlog"){
+    const q = ql && S.people.get(ql.pid); if (!q){ closeSheet(); return; }
+    const type = f.querySelector('[data-logtype][aria-pressed="true"]')?.dataset.logtype || ql.type;
+    const entry = { id:uid("l"), at: v("ql-date") || today(), type, shared:v("ql-shared"), cares:v("ql-cares"), questions:v("ql-q") };
+    (q.logs ||= []).push(entry);
+    const pr = v("ql-prayer"); if (pr) (q.prayers ||= []).push({id:uid("r"), text:pr, at:entry.at, answeredAt:null});
+    if (ql.meet){ const { t } = taskRef(ql.meet.pid, ql.meet.id); if (t && !t.done){ t.done = true; t.doneAt = today(); } }
+    savePerson(q); S.lastLogged = q.id; ql = null; render();
+    openSheet(`<div class="stack"><h2>Logged.</h2><p class="muted" style="margin:0">It's in ${esc(first(q.name))}'s history.</p>
+      <div class="row spread card"><div><b>Set a next step?</b><div class="small muted">While it's fresh.</div></div><button class="pill-btn" data-act="ql-next">Add</button></div>
+      <div class="row"><button class="btn" data-act="close-sheet">Done</button><button class="btn ghost" data-act="ql-open">Open ${esc(first(q.name))}</button></div></div>`);
     return;
   }
   const p = cur();

@@ -1,5 +1,5 @@
 // Tend service worker: offline app shell + push notifications.
-const CACHE = "tend-v20";
+const CACHE = "tend-v21";
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./config.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/apple-touch-icon.png", "./icons/badge-96.png"];
 
@@ -52,7 +52,8 @@ self.addEventListener("notificationclick", e => {
   e.notification.close();
   const target = new URL(e.notification.data && e.notification.data.url || "./", self.registration.scope).href;
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
-    for (const c of list) { if ("focus" in c) { c.navigate(target).catch(() => {}); return c.focus(); } }
+    // Tend is already open: tell it where to go instead of reloading it.
+    for (const c of list) { if ("focus" in c) { c.postMessage({ type: "tend-open", url: target }); return c.focus(); } }
     return self.clients.openWindow(target);
   }));
 });

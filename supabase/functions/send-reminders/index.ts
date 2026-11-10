@@ -136,14 +136,15 @@ export function meetupMessage(t: any, r: any, person: string | null) {
   return { title: `${t.title} ${when}${at}`, body: (name ? `Meetup · ${person}` : "Meetup reminder") + where };
 }
 
-async function sendToUser(userId: string, msg: { title: string; body: string }, tag = "tend-daily") {
+// url: where tapping the notification lands in the app (see runOpen() in app.js).
+async function sendToUser(userId: string, msg: { title: string; body: string }, tag = "tend-daily", url = "./") {
   if (!VAPID_READY) return 0;
   const { data: subs } = await admin.from("push_subscriptions").select("endpoint,subscription").eq("user_id", userId);
   let sent = 0;
   for (const s of subs || []) {
     try {
       // urgency "high" tells Apple to deliver right away instead of batching it for later.
-      await webpush.sendNotification(s.subscription, JSON.stringify({ ...msg, tag: tag.replace(/[^a-zA-Z0-9-]/g, "-"), url: "./" }), { TTL: 60 * 60 * 6, urgency: "high" });
+      await webpush.sendNotification(s.subscription, JSON.stringify({ ...msg, tag: tag.replace(/[^a-zA-Z0-9-]/g, "-"), url }), { TTL: 60 * 60 * 6, urgency: "high" });
       sent++;
     } catch (e: any) {
       if (e?.statusCode === 404 || e?.statusCode === 410) await admin.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
@@ -180,33 +181,36 @@ async function runSchedule() {
     const people = await loadPeople(u.user_id);
 
     // 1. Reminders that are due now (up to 60 minutes late), not done, not already sent.
-    const due: { msg: { title: string; body: string }; key: string }[] = [];
+    const due: { msg: { title: string; body: string }; key: string; url: string }[] = [];
+    // Tapping a reminder opens that task; tapping a meetup follow-up opens the quick log for that person.
+    const link = (open: string, t: any, pid: string | null) =>
+      `./?open=${open}&t=${encodeURIComponent(t.id)}` + (pid ? `&p=${encodeURIComponent(pid)}` : "");
     // 1a. Regular tasks: one reminder at remindAt on the due date.
-    const addTask = (t: any, person: string | null) => {
+    const addTask = (t: any, person: string | null, pid: string | null) => {
       if (!t || t.done || isMeetup(t) || !t.remindAt || t.due !== local.date) return;
       const late = toMin(local.time) - toMin(t.remindAt);
       if (late < 0 || late > 60) return;
-      due.push({ msg: { title: t.title, body: person ? `Reminder · ${person}` : "Reminder from Tend" }, key: `${t.id}|${t.due}|${t.remindAt}` });
+      due.push({ msg: { title: t.title, body: person ? `Reminder · ${person}` : "Reminder from Tend" }, key: `${t.id}|${t.due}|${t.remindAt}`, url: link("task", t, pid) });
     };
     // 1b. Meetups: each reminder has its own local date + time, so it can fire on any day.
     // The app recalculates these when a meetup is rescheduled; the key includes date+time so moved reminders send again.
-    const addMeetup = (t: any, person: string | null) => {
+    const addMeetup = (t: any, person: string | null, pid: string | null) => {
       if (!t || !isMeetup(t) || !Array.isArray(t.reminders)) return;
       if (t.done) return; // once a meetup is marked done, none of its reminders fire
       for (const r of t.reminders) {
         if (!r?.date || !r?.time) continue;
         const late = days(r.date, local.date) * 1440 + toMin(local.time) - toMin(r.time);
         if (late < 0 || late > 60) continue;
-        due.push({ msg: meetupMessage(t, r, person), key: `${t.id}|${r.id || r.type}|${r.date}T${r.time}` });
+        due.push({ msg: meetupMessage(t, r, person), key: `${t.id}|${r.id || r.type}|${r.date}T${r.time}`, url: link(r.type === "followup" && pid ? "log" : "task", t, pid) });
       }
     };
-    for (const p of people) for (const t of p.tasks || []) { addTask(t, p.name); addMeetup(t, p.name); }
-    for (const t of u.data?.tasks || []) { addTask(t, null); addMeetup(t, null); }
+    for (const p of people) for (const t of p.tasks || []) { addTask(t, p.name, p.id || null); addMeetup(t, p.name, p.id || null); }
+    for (const t of u.data?.tasks || []) { addTask(t, null, null); addMeetup(t, null, null); }
     for (const r of due) {
       const { data: claimed } = await admin.from("sent_reminders")
         .upsert({ user_id: u.user_id, key: r.key }, { onConflict: "user_id,key", ignoreDuplicates: true }).select();
       if (!claimed || !claimed.length) continue; // already sent
-      const sent = await sendToUser(u.user_id, r.msg, "task-" + r.key);
+      const sent = await sendToUser(u.user_id, r.msg, "task-" + r.key, r.url);
       if (sent) reminders++;
     }
 

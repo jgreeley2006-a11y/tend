@@ -488,3 +488,6 @@ select.tw-sel{width:auto;padding:6px 10px;min-height:0}
 .ql-more summary{font-weight:600;font-size:var(--fs-sm);color:var(--accent);cursor:pointer;padding:var(--sp-1) 0}
 .ql-more .stack{margin-top:var(--sp-3)}
 .sheet .plist{max-height:50vh;overflow-y:auto}
+
+/* Lists that are also cards (Tasks tab, Answered prayers) were losing their card padding */
+.plain-list.card{padding:var(--sp-3) var(--sp-4);gap:var(--sp-3)}

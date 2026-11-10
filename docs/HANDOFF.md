@@ -8,6 +8,10 @@
 - Church members = `circle: "family"` (every person has `kind: "person"`). UI name "Church family", amber color (`--fam`). Evangelism side is green.
 - Meetup reminder defaults come from `defaultReminders(due, time)` in `app.js` and can be overridden by `meta.meetupDefaults`.
 - Edge functions live in `supabase/functions/` (`send-reminders`, `meetup-calendar`). Deploy from there; the repo is the source of truth.
+- **Design tokens (Nov 10):** all font sizes, corner radii and common gaps come from the tokens at the top of `styles.css` (`--fs-*`, `--r-*`, `--sp-*`). Use those, not new pixel values. Small controls get their 44px touch area from the "Tap targets" block near the bottom of the file.
+- **Saving (Nov 10):** `pushRow()` in `app.js` only saves if the server row still has the `updated_at` this phone last saw; otherwise it merges with `mergeDoc()` / `mergeList()` and retries. Records with unsynced changes are listed in `tend-pending-<user>` and their last in-step copy in `tend-base-<user>` (both localStorage). No schema or JSON-shape change. If you add a new list to a person or to meta, give its items an `id` so they merge item by item.
+- **Notification links (Nov 10):** `send-reminders` puts `url` in each push (`./?open=task&t=…&p=…`, or `open=log` for a meetup follow-up). `sw.js` passes it to the app, and `runOpen()` in `app.js` routes it. Unknown or deleted targets land on Today.
+- **Quick log (Nov 10):** `quickLogSheet()` / `logPickSheet()`; Log buttons on Today rows and a "Log a conversation" button under Next steps. Logging from a meetup marks it done.
 
 ---
 
@@ -274,4 +278,5 @@ Two entry points:
 | Today's devo card (`docs/TEND_DAILY_DEVO_SPEC.md`) | Built Oct 7 |
 | Daily verses → ESV | Paused |
 | Church/leader hierarchy | Not planned for now |
+| Polish pass, save safety, quick log, notification links (`docs/TEND_POLISH_NOTES.md`) | Built Nov 10 |
 | Gather tester feedback and track sign-ups | Ongoing |
