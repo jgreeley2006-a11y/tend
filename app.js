@@ -170,74 +170,178 @@ const cacheKey = () => "tend-cache-" + (USER ? USER.id : "anon");
 const PENDKEY = () => "tend-pending-" + (USER ? USER.id : "anon");
 
 /* ---------- persistence (Supabase) ---------- */
+// "pending" = records with changes that haven't reached the server yet. Kept on the phone so they survive a restart.
 function loadPending(){ try { return new Set(JSON.parse(localStorage.getItem(PENDKEY()) || "[]")); } catch(_) { return new Set(); } }
 function storePending(set){ try { localStorage.setItem(PENDKEY(), JSON.stringify([...set])); } catch(_){} }
 const pending = { set: new Set() };
+// What the server had the last time this phone was in step with it: its updated_at stamp (rev) and the record itself (synced, as JSON).
+// With these, a save can tell that another device changed the same record, and merge the two instead of overwriting.
+const rev = new Map(), synced = new Map(), wroteAt = new Map();
+const BASEKEY = () => "tend-base-" + (USER ? USER.id : "anon");
+let bases = {};   // id -> { rev, doc } : the in-step copy of each record that has unsynced changes
+function loadBases(){ try { return JSON.parse(localStorage.getItem(BASEKEY()) || "{}") || {}; } catch(_) { return {}; } }
+function storeBases(){ try { localStorage.setItem(BASEKEY(), JSON.stringify(bases)); } catch(_){} }
+const parseDoc = j => { try { return j ? JSON.parse(j) : null; } catch(_) { return null; } };
+const sameStamp = (a, b) => !!a && !!b && Date.parse(a) === Date.parse(b);
+const docOf = id => id === "meta" ? S.meta : S.people.get(id);
+function markDirty(id){
+  if (!bases[id]){ bases[id] = { rev: rev.get(id) || null, doc: synced.get(id) || null }; storeBases(); }
+  if (!pending.set.has(id)){ pending.set.add(id); storePending(pending.set); }
+}
+// A save reached the server. If nothing changed here while it was on its way, the record is fully in step.
+function markSaved(id, stamp, json){
+  wroteAt.set(id, Date.now());
+  if (!stamp){ rev.delete(id); synced.delete(id); delete bases[id]; storeBases(); if (pending.set.delete(id)) storePending(pending.set); return; }
+  rev.set(id, stamp); synced.set(id, json);
+  if (JSON.stringify(docOf(id)) === json){ delete bases[id]; if (pending.set.delete(id)) storePending(pending.set); }
+  else bases[id] = { rev: stamp, doc: json };
+  storeBases(); cacheLocal();
+}
 function cacheLocal(){
-  try { localStorage.setItem(cacheKey(), JSON.stringify({ people:[...S.people.values()].filter(p=>!p.example), meta:S.meta, settings:S.settings })); } catch(_){}
+  try { localStorage.setItem(cacheKey(), JSON.stringify({ people:[...S.people.values()].filter(p=>!p.example), meta:S.meta, settings:S.settings, rev:Object.fromEntries(rev) })); } catch(_){}
+}
+
+/* Merging two copies of a record (this phone's and the server's), given the copy they both started from when we have it. */
+const sameJ = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const keyOf = x => x && typeof x === "object" ? (x.id !== undefined ? "id:" + x.id : JSON.stringify(x)) : "v:" + JSON.stringify(x);
+// Lists (conversations, prayers, tasks, dates…): keep what either side added, drop what either side removed,
+// and when both changed the same item keep this phone's. Without a starting copy, nothing is dropped.
+function mergeList(local, server, base){
+  local = Array.isArray(local) ? local : []; server = Array.isArray(server) ? server : [];
+  const B = new Map((Array.isArray(base) ? base : []).map(x => [keyOf(x), x]));
+  const Sv = new Map(server.map(x => [keyOf(x), x])); const L = new Set(local.map(keyOf));
+  const out = [];
+  for (const x of local){
+    const k = keyOf(x); const inS = Sv.has(k), inB = B.has(k);
+    if (!inS){ if (inB && sameJ(x, B.get(k))) continue; out.push(x); }   // removed on the other device, untouched here
+    else out.push(inB && sameJ(x, B.get(k)) ? Sv.get(k) : x);            // untouched here: take the server's version
+  }
+  for (const x of server){ const k = keyOf(x); if (!L.has(k) && !B.has(k)) out.push(x); }   // new from the other device
+  return out;
+}
+function mergeMap(local, server, base){
+  const out = { ...server };
+  new Set([...Object.keys(local), ...Object.keys(base || {})]).forEach(k => {
+    if (base && sameJ(local[k], base[k])) return;
+    if (local[k] === undefined) delete out[k]; else out[k] = local[k];
+  });
+  return out;
+}
+const isMap = x => !!x && typeof x === "object" && !Array.isArray(x);
+// Everything else: a field changed on this phone wins; a field left alone here takes the server's value. Unknown fields are kept.
+function mergeDoc(local, server, base){
+  const out = { ...server };
+  new Set([...Object.keys(local), ...Object.keys(base || {})]).forEach(k => {
+    const l = local[k], s = server[k], b = base ? base[k] : undefined;
+    if (Array.isArray(l) || (l === undefined && Array.isArray(b) && Array.isArray(s))) out[k] = mergeList(l, s, base ? (b || []) : null);
+    else if (k === "weekPlans" && isMap(l) && isMap(s)) out[k] = mergeMap(l, s, base ? (isMap(b) ? b : {}) : null);
+    else if (!base || !sameJ(l, b)){ if (l === undefined) delete out[k]; else out[k] = l; }
+  });
+  return out;
+}
+// Put merged values into the same object the screen is already using.
+function replaceIn(target, src){ Object.keys(target).forEach(k => { if (!(k in src)) delete target[k]; }); return Object.assign(target, src); }
+function mergeFromServer(id, serverDoc, stamp){
+  const json = JSON.stringify(serverDoc || {});
+  replaceIn(docOf(id), mergeDoc(docOf(id), serverDoc || {}, parseDoc(bases[id] && bases[id].doc)));
+  rev.set(id, stamp); synced.set(id, json); bases[id] = { rev: stamp, doc: json };
+}
+
+const metaCols = () => ({ notify_enabled: !!S.settings.notify, reminder_time: S.settings.time || "07:30", timezone: S.settings.tz || Intl.DateTimeFormat().resolvedOptions().timeZone });
+// Save one record. The save only goes through if the server still has the copy this phone last saw;
+// if another device saved in between, merge the two and try again.
+async function pushRow(id){
+  const meta = id === "meta"; const table = meta ? "meta" : "people", col = meta ? "user_id" : "id", key = meta ? USER.id : id;
+  if (!docOf(id)){ const r = await sb.from(table).delete().eq(col, key); if (!r.error) markSaved(id, null); return r; }
+  const row = stamp => Object.assign({ data: docOf(id), updated_at: stamp }, meta ? metaCols() : {});
+  for (let attempt = 0; attempt < 3; attempt++){
+    const stamp = new Date().toISOString(); const json = JSON.stringify(docOf(id)); const known = rev.get(id);
+    if (known){
+      const r = await sb.from(table).update(row(stamp)).eq(col, key).eq("updated_at", known).select(col);
+      if (r.error) return r;
+      if (r.data && r.data.length){ markSaved(id, stamp, json); return r; }
+    }
+    const cur = await sb.from(table).select("data,updated_at").eq(col, key).maybeSingle();
+    if (cur.error) return cur;
+    if (!docOf(id)) return pushRow(id);   // removed here while we were checking
+    if (!cur.data){
+      const r = await sb.from(table).upsert(Object.assign({ [col]: key, user_id: USER.id }, row(stamp)));
+      if (!r.error) markSaved(id, stamp, json);
+      return r;
+    }
+    mergeFromServer(id, cur.data.data, cur.data.updated_at);
+    storeBases(); cacheLocal(); softRender();
+  }
+  return { error: new Error("This record kept changing on another device. Will retry.") };
 }
 const queues = new Map();
-function enqueue(id, fn){
+function enqueue(id){
   const prev = queues.get(id) || Promise.resolve();
   const next = prev.then(async () => {
-    const { error } = await fn();
+    const { error } = await pushRow(id);
     if (error) throw error;
-    if (pending.set.delete(id)) storePending(pending.set);
-    setSync("");
+    if (!pending.set.size) setSync("");
   }).catch(e => {
     console.warn("save failed", e);
     pending.set.add(id); storePending(pending.set);
-    setSync(navigator.onLine ? "Couldn't sync. Will retry." : "Offline. Saved on this phone.");
-  });
+    setSync(navigator.onLine ? "Couldn't sync yet. Saved on this phone, and Tend will keep trying." : "Offline. Saved on this phone, and it will sync when you're back online.");
+    retrySoon();
+  }).finally(() => { if (queues.get(id) === next) queues.delete(id); });
   queues.set(id, next); return next;
 }
-function writePerson(id){
-  const p = S.people.get(id);
-  if (!p) return enqueue(id, () => sb.from("people").delete().eq("id", id));
-  return enqueue(id, () => sb.from("people").upsert({ id, user_id: USER.id, data: p, updated_at: new Date().toISOString() }));
-}
-function writeMeta(){
-  return enqueue("meta", () => sb.from("meta").upsert({
-    user_id: USER.id, data: S.meta,
-    notify_enabled: !!S.settings.notify, reminder_time: S.settings.time || "07:30",
-    timezone: S.settings.tz || Intl.DateTimeFormat().resolvedOptions().timeZone,
-    updated_at: new Date().toISOString()
-  }));
-}
+const writePerson = id => enqueue(id);
+const writeMeta = () => enqueue("meta");
 function savePerson(p){
   p.updatedAt = Date.now();
   S.people.set(p.id, p);
   if (p.example) return;
-  cacheLocal(); writePerson(p.id);
+  markDirty(p.id); cacheLocal(); writePerson(p.id);
 }
 function deletePerson(id){
   const p = S.people.get(id); S.people.delete(id);
   if (!p || p.example) return;
-  cacheLocal(); writePerson(id);
+  markDirty(id); cacheLocal(); writePerson(id);
 }
-function saveMeta(){ cacheLocal(); writeMeta(); }
-function flushPending(){
-  [...pending.set].forEach(id => id === "meta" ? writeMeta() : writePerson(id));
-}
+function saveMeta(){ markDirty("meta"); cacheLocal(); writeMeta(); }
+function flushPending(){ [...pending.set].forEach(id => { if (!queues.has(id)) enqueue(id); }); }
+// While anything is waiting to sync, try again every 30 seconds.
+function retrySoon(){ clearTimeout(retrySoon.t); retrySoon.t = setTimeout(() => { if (USER && pending.set.size) flushPending(); }, 30000); }
 function setSync(msg){ S.syncMsg = msg; const el = document.getElementById("sync"); if (el) el.textContent = msg; }
 
 async function loadFromServer(){
   const [pr, mr] = await Promise.all([
-    sb.from("people").select("id,data"),
+    sb.from("people").select("id,data,updated_at"),
     sb.from("meta").select("*").eq("user_id", USER.id).maybeSingle()
   ]);
   if (pr.error || mr.error) throw (pr.error || mr.error);
-  const serverPeople = new Map();
-  pr.data.forEach(r => serverPeople.set(r.id, r.data));
-  // keep local versions of anything not yet synced
-  pending.set.forEach(id => { if (id === "meta") return; const local = S.people.get(id); if (local) serverPeople.set(id, local); else serverPeople.delete(id); });
-  S.people = serverPeople;
-  if (mr.data && !pending.set.has("meta")){
-    S.meta = Object.assign({ kind:"meta", tasks:[], quietUntil:null, reviewAt:null, hideExamples:false }, mr.data.data || {});
-    S.settings = { notify: !!mr.data.notify_enabled, time: mr.data.reminder_time || "07:30", tz: mr.data.timezone };
+  // An answer that is older than a save this phone just made is stale; keep what's here.
+  const stale = (id, stamp) => rev.has(id) && Date.now() - (wroteAt.get(id) || 0) < 10000 && Date.parse(stamp) < Date.parse(rev.get(id));
+  const next = new Map();
+  pr.data.forEach(r => {
+    const local = S.people.get(r.id);
+    if (pending.set.has(r.id)){
+      if (!local) return;   // removed on this phone; the delete is on its way
+      // Unsynced changes here: keep them, and fold in anything another device saved since we last looked.
+      if (!sameStamp(rev.get(r.id) || (bases[r.id] && bases[r.id].rev), r.updated_at)) mergeFromServer(r.id, r.data, r.updated_at);
+      next.set(r.id, local);
+    } else if (local && stale(r.id, r.updated_at)) next.set(r.id, local);
+    else { next.set(r.id, r.data); rev.set(r.id, r.updated_at); synced.set(r.id, JSON.stringify(r.data)); }
+  });
+  // People added on this phone that haven't reached the server yet
+  pending.set.forEach(id => { if (id !== "meta" && !next.has(id) && S.people.has(id)) next.set(id, S.people.get(id)); });
+  [...rev.keys()].forEach(id => { if (id !== "meta" && !next.has(id)){ rev.delete(id); synced.delete(id); } });
+  S.people = next;
+  if (mr.data){
+    if (pending.set.has("meta")){
+      if (!sameStamp(rev.get("meta") || (bases.meta && bases.meta.rev), mr.data.updated_at)) mergeFromServer("meta", mr.data.data, mr.data.updated_at);
+    } else if (!stale("meta", mr.data.updated_at)){
+      S.meta = Object.assign({ kind:"meta", tasks:[], quietUntil:null, reviewAt:null, hideExamples:false }, mr.data.data || {});
+      S.settings = { notify: !!mr.data.notify_enabled, time: mr.data.reminder_time || "07:30", tz: mr.data.timezone };
+      rev.set("meta", mr.data.updated_at); synced.set("meta", JSON.stringify(mr.data.data || {}));
+    }
   }
   S.meta.tasks ||= [];
-  cacheLocal();
+  storeBases(); cacheLocal();
 }
 
 function loadVerses(){
@@ -290,8 +394,11 @@ async function boot(){
 async function startSession(user){
   USER = user;
   try { localStorage.setItem("tend-returning", "1"); } catch(_){}
-  pending.set = loadPending();
-  try { const raw = localStorage.getItem(cacheKey()); if (raw){ const d = JSON.parse(raw); (d.people||[]).forEach(p => S.people.set(p.id, p)); if (d.meta) S.meta = d.meta; if (d.settings) S.settings = d.settings; S.meta.tasks ||= []; S.mode = "db"; render(); } } catch(_){}
+  pending.set = loadPending(); bases = loadBases(); rev.clear(); synced.clear(); wroteAt.clear();
+  try { const raw = localStorage.getItem(cacheKey()); if (raw){ const d = JSON.parse(raw); (d.people||[]).forEach(p => S.people.set(p.id, p)); if (d.meta) S.meta = d.meta; if (d.settings) S.settings = d.settings; S.meta.tasks ||= [];
+    // The saved copy of anything already in step with the server is our starting point for future merges.
+    Object.entries(d.rev || {}).forEach(([id, stamp]) => { const doc = docOf(id); if (!doc) return; rev.set(id, stamp); if (!pending.set.has(id)) synced.set(id, JSON.stringify(doc)); });
+    S.mode = "db"; render(); } } catch(_){}
   loadVerses();
   try { await loadFromServer(); S.mode = "db"; softRender(); flushPending(); }
   catch(e){ console.warn(e); if (S.mode !== "db"){ S.mode = "db"; render(); } setSync("Offline. Showing what's saved on this phone."); }
@@ -2021,7 +2128,10 @@ document.addEventListener("click", async e => {
     case "ldel-yes": { const p = cur(); if (p && S.editLog){ p.logs = (p.logs||[]).filter(x => x.id !== S.editLog); savePerson(p); } S.editLog = null; closeSheet(); toast("Entry deleted"); render(); break; }
     case "toggle-daily": S.meta.dailySummary = S.meta.dailySummary === false; saveMeta(); settingsSheet(); break;
     case "export": exportData(); break;
-    case "signout": await sb.auth.signOut(); USER = null; S.cal = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
+    case "signout": el.disabled = true;
+      // Give unsynced changes a few seconds to reach the server first. Anything still waiting stays on this phone and syncs at the next sign-in.
+      if (pending.set.size){ flushPending(); await Promise.race([Promise.all([...queues.values()]), new Promise(r => setTimeout(r, 4000))]); }
+      clearTimeout(retrySoon.t); await sb.auth.signOut(); USER = null; S.cal = null; S.people = new Map(); S.mode = "signin"; S.signin = { step:"signin" }; closeSheet(); render(); break;
     case "signin-toggle": S.signin = { step: S.signin.step === "create" ? "signin" : "create", email: ($("#si-email")?.value || S.signin.email || "") }; render(); break;
     case "ai-question": aiQuestion(el); break;
   }
@@ -2099,7 +2209,9 @@ document.addEventListener("submit", e => {
   } else if (kind === "date"){
     (p.dates ||= []).push({id:uid("d"), label:v("dt-label"), date:v("dt-date"), yearly: $("#dt-yearly").checked}); savePerson(p); S.ui.open = null; render();
   } else if (kind === "edit"){
-    Object.assign(p, { name:v("ed-name")||p.name, note:v("ed-note"), howMet:v("ed-how"), relationship:v("ed-rel"), family:v("ed-family"), job:v("ed-job"), interests:v("ed-int"), faith: $("#ed-faith") ? v("ed-faith") : p.faith, phone:v("ed-phone"), email:v("ed-email") });
+    const vals = { name:v("ed-name")||p.name, note:v("ed-note"), howMet:v("ed-how"), relationship:v("ed-rel"), family:v("ed-family"), job:v("ed-job"), interests:v("ed-int"), faith: $("#ed-faith") ? v("ed-faith") : p.faith, phone:v("ed-phone"), email:v("ed-email") };
+    // Only touch the fields that were actually edited, so an edit made on another device to a different field isn't undone.
+    Object.keys(vals).forEach(k => { if ((p[k] || "") !== (vals[k] || "")) p[k] = vals[k]; });
     savePerson(p); S.ui.open = null; toast("Saved"); render();
   } else if (kind === "predit"){
     const ep = S.editPrayer; const q = ep && S.people.get(ep.pid); const r = q && (q.prayers||[]).find(x => x.id === ep.id);
