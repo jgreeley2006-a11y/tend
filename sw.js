@@ -1,5 +1,5 @@
 // Tend service worker: offline app shell + push notifications.
-const CACHE = "tend-v19";
+const CACHE = "tend-v20";
 const SHELL = ["./", "./index.html", "./styles.css", "./app.js", "./config.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/apple-touch-icon.png", "./icons/badge-96.png"];
 
@@ -14,7 +14,16 @@ self.addEventListener("activate", e => {
 // Network first for our own files so updates show up; fall back to cache when offline.
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
-  if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (e.request.method !== "GET") return;
+  // Fonts come from Google. Keep a copy so the app looks the same offline.
+  if (url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com"){
+    e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request).then(res => {
+      if (res.ok || res.type === "opaque"){ const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
+      return res;
+    })));
+    return;
+  }
+  if (url.origin !== self.location.origin) return;
   e.respondWith(
     fetch(e.request).then(res => {
       const copy = res.clone();

@@ -1455,7 +1455,7 @@ function viewPerson(p){
     ${p.example ? `<div class="banner info"><div class="grow"><div><b>Example person.</b> Changes here aren't saved.</div></div></div>` : ""}
     <div class="stack">
       <div class="phead">${avatar(p)}
-        <div class="grow">${isFam(p) ? `<div class="circle-tag">${ICON_HOME}Church family</div>` : ""}<h1 style="font-size:26px">${esc(p.name)}</h1><div class="meta">${esc([p.howMet, p.relationship].filter(Boolean).join(" · "))}${s!==null?` · last contact ${s===0?"today":s+"d ago"}`:""}</div></div>
+        <div class="grow">${isFam(p) ? `<div class="circle-tag">${ICON_HOME}Church family</div>` : ""}<h1 style="font-size:var(--fs-2xl)">${esc(p.name)}</h1><div class="meta">${esc([p.howMet, p.relationship].filter(Boolean).join(" · "))}${s!==null?` · last contact ${s===0?"today":s+"d ago"}`:""}</div></div>
         <button class="pill-btn ${p.focus?"on":""}" data-act="focus" aria-pressed="${!!p.focus}" ${!p.focus && focusCount>=5 ? `title="Focus 5 is full"`:""}>${p.focus?"★ Focus 5":"☆ Focus 5"}</button></div>
       ${contactButtons(p)}
       <div>
